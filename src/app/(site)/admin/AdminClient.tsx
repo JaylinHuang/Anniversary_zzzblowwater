@@ -1,0 +1,273 @@
+"use client";
+
+import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ToastProvider";
+import { apiFetch } from "@/lib/api-client";
+import type { ModuleKey } from "@/lib/constants";
+
+export function AdminClient({
+  modules,
+  statsPublic,
+  statsAnonymous,
+  setup,
+  passphraseDbManaged,
+  onebot,
+}: {
+  modules: { key: ModuleKey; label: string; enabled: boolean }[];
+  statsPublic: boolean;
+  statsAnonymous: boolean;
+  passphraseDbManaged: boolean;
+  setup: {
+    groupName: string;
+    readyScore: number;
+    items: {
+      id: string;
+      label: string;
+      ok: boolean;
+      hint: string;
+      critical: boolean;
+    }[];
+  };
+  onebot: {
+    configured: boolean;
+    groupId: string | null;
+    webhookUrl: string;
+    batch: {
+      id: number;
+      messageCount: number;
+      timeStart: string | null;
+      timeEnd: string | null;
+      status: string;
+    } | null;
+  };
+}) {
+  const router = useRouter();
+  const { success, error } = useToast();
+  const [currentPw, setCurrentPw] = useState("");
+  const [nextPw, setNextPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+
+  async function toggle(key: ModuleKey, enabled: boolean) {
+    try {
+      await apiFetch("/api/admin/flags", {
+        method: "PATCH",
+        body: JSON.stringify({ key, enabled }),
+      });
+      success(enabled ? "模块已开启" : "模块已关闭");
+      router.refresh();
+    } catch (e) {
+      error(e instanceof Error ? e.message : "更新失败");
+    }
+  }
+
+  async function patchStats(patch: {
+    statsPublic?: boolean;
+    statsAnonymous?: boolean;
+  }) {
+    try {
+      await apiFetch("/api/stats", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      success("统计设置已更新");
+      router.refresh();
+    } catch (e) {
+      error(e instanceof Error ? e.message : "更新失败");
+    }
+  }
+
+  async function changePassphrase(e: FormEvent) {
+    e.preventDefault();
+    setPwBusy(true);
+    try {
+      const data = await apiFetch<{ message?: string }>("/api/admin/passphrase", {
+        method: "POST",
+        body: JSON.stringify({
+          current: currentPw,
+          next: nextPw,
+          confirm: confirmPw,
+        }),
+      });
+      success(data.message || "口令已更新");
+      setCurrentPw("");
+      setNextPw("");
+      setConfirmPw("");
+      router.refresh();
+    } catch (err) {
+      error(err instanceof Error ? err.message : "修改失败");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 space-y-6">
+      <section className="panel rounded-2xl p-5">
+        <h2 className="text-[var(--amber)]">整站口令</h2>
+        <p className="mt-2 text-sm text-[var(--fog)]">
+          仅管理员可修改。普通成员看不到此入口。
+          {passphraseDbManaged
+            ? " 当前：数据库口令（后台已设置）。"
+            : " 当前：.env / 默认口令；你改一次后将由数据库接管。"}
+        </p>
+        <form onSubmit={changePassphrase} className="mt-4 grid gap-3 md:grid-cols-3">
+          <input
+            className="input"
+            type="password"
+            placeholder="当前口令"
+            value={currentPw}
+            onChange={(e) => setCurrentPw(e.target.value)}
+            required
+            autoComplete="current-password"
+          />
+          <input
+            className="input"
+            type="password"
+            placeholder="新口令（4–64 字）"
+            value={nextPw}
+            onChange={(e) => setNextPw(e.target.value)}
+            required
+            minLength={4}
+            maxLength={64}
+            autoComplete="new-password"
+          />
+          <input
+            className="input"
+            type="password"
+            placeholder="确认新口令"
+            value={confirmPw}
+            onChange={(e) => setConfirmPw(e.target.value)}
+            required
+            minLength={4}
+            maxLength={64}
+            autoComplete="new-password"
+          />
+          <button className="btn md:col-span-3" type="submit" disabled={pwBusy}>
+            {pwBusy ? "保存中…" : "更新口令"}
+          </button>
+        </form>
+      </section>
+
+      <section className="panel rounded-2xl p-5">
+        <h2 className="text-[var(--amber)]">
+          开箱清单 · {setup.groupName}
+          <span className="ml-2 text-sm text-[var(--cyan)]">
+            就绪 {setup.readyScore}%
+          </span>
+        </h2>
+        <p className="mt-2 text-sm text-[var(--fog)]">
+          标「未完成」的是给你留的配置空位；代码侧逻辑已就绪，填完重启即可。
+        </p>
+        <ul className="mt-4 space-y-3 text-sm">
+          {setup.items.map((item) => (
+            <li
+              key={item.id}
+              className="flex flex-col gap-1 border-b border-[var(--line)] pb-3 last:border-0 sm:flex-row sm:items-start sm:justify-between"
+            >
+              <div>
+                <span className={item.ok ? "text-[var(--cyan)]" : "text-[var(--danger)]"}>
+                  {item.ok ? "✓" : "○"} {item.label}
+                </span>
+                {item.critical && !item.ok ? (
+                  <span className="ml-2 text-xs text-[var(--amber)]">关键</span>
+                ) : null}
+              </div>
+              {!item.ok ? (
+                <code className="text-xs text-[var(--fog)] sm:max-w-md sm:text-right">
+                  {item.hint}
+                </code>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="panel rounded-2xl p-5">
+        <h2 className="text-[var(--amber)]">数据备份</h2>
+        <p className="mt-2 text-sm text-[var(--fog)]">
+          导出模块开关、里程碑、Agent 名册元数据与金句（不含会话令牌与口令）。
+        </p>
+        <a className="btn mt-4 inline-block" href="/api/admin/backup">
+          下载 JSON 快照
+        </a>
+      </section>
+
+      <section className="panel rounded-2xl p-5">
+        <h2 className="text-[var(--amber)]">模块开关</h2>
+        <ul className="mt-4 space-y-3">
+          {modules.map((m) => (
+            <li key={m.key} className="flex items-center justify-between text-sm">
+              <span>{m.label}</span>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => toggle(m.key, !m.enabled)}
+              >
+                {m.enabled ? "已开启" : "已关闭"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="panel rounded-2xl p-5">
+        <h2 className="text-[var(--amber)]">趣味统计</h2>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            className="btn"
+            type="button"
+            onClick={() => patchStats({ statsPublic: !statsPublic })}
+          >
+            公开统计：{statsPublic ? "开" : "关"}
+          </button>
+          <button
+            className="btn btn-ghost"
+            type="button"
+            onClick={() => patchStats({ statsAnonymous: !statsAnonymous })}
+          >
+            匿名榜：{statsAnonymous ? "开" : "关"}
+          </button>
+        </div>
+      </section>
+
+      <section className="panel rounded-2xl p-5">
+        <h2 className="text-[var(--amber)]">方案 B · OneBot / NapCat 实时同步</h2>
+        <p className="mt-2 text-sm text-[var(--fog)]">
+          状态：
+          <span className={onebot.configured ? "text-[var(--cyan)]" : "text-[var(--danger)]"}>
+            {onebot.configured ? "已配置令牌" : "未配置 ONEBOT_ACCESS_TOKEN"}
+          </span>
+          {onebot.groupId ? ` · 限定群 ${onebot.groupId}` : " · 未限定群号"}
+        </p>
+        <p className="mt-3 break-all text-sm">
+          Webhook URL：
+          <code className="text-[var(--cyan)]">{onebot.webhookUrl}</code>
+        </p>
+        <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-[var(--fog)]">
+          <li>
+            在 <code>.env</code> 设置 <code>ONEBOT_ACCESS_TOKEN</code> 与{" "}
+            <code>ONEBOT_GROUP_ID</code>，重启服务
+          </li>
+          <li>部署 NapCat / 其他 OneBot 实现，登录用于挂机的 QQ</li>
+          <li>
+            HTTP 上报地址填上面的 URL；鉴权使用{" "}
+            <code>Authorization: Bearer &lt;令牌&gt;</code>
+          </li>
+          <li>群内发一条测试消息，再到「群聊归档」查看是否出现</li>
+        </ol>
+        {onebot.batch ? (
+          <p className="mt-4 text-sm text-[var(--ink)]">
+            实时批次 #{onebot.batch.id} · 已同步 {onebot.batch.messageCount} 条 ·{" "}
+            {onebot.batch.timeStart || "?"} ~ {onebot.batch.timeEnd || "?"}
+          </p>
+        ) : (
+          <p className="mt-4 text-sm text-[var(--fog)]">
+            尚未收到机器人消息（收到后会自动创建 onebot-live 批次）。
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}

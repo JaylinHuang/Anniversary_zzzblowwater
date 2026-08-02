@@ -1,0 +1,42 @@
+{
+  "name": "anniversary-zzzblowwater",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:init": "tsx scripts/init-db.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:sample-import": "tsx scripts/sample-import.ts",
+    "db:seed-lore": "tsx scripts/seed-lore.ts",
+    "test:logic": "tsx scripts/test-logic.ts",
+    "test:roster": "tsx scripts/test-roster-demo.ts",
+    "test:stats": "tsx scripts/test-stats-demo.ts",
+    "test:agent": "tsx scripts/test-manual-agent.ts",
+    "test:all": "tsx scripts/test-logic.ts && tsx scripts/test-roster-demo.ts && tsx scripts/test-stats-demo.ts && tsx scripts/test-manual-agent.ts && tsx scripts/smoke.ts",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "next": "^15.5.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "sql.js": "^1.13.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
+    "@tailwindcss/postcss": "^4.1.11",
+    "@types/node": "^22.17.0",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "@types/sql.js": "^1.4.9",
+    "eslint": "^9.32.0",
+    "eslint-config-next": "^15.5.2",
+    "tailwindcss": "^4.1.11",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,10 @@
+# Railway：使用仓库根目录 Dockerfile 构建
+# 部署后务必在 Dashboard 为服务挂载 Volume → 路径 /app/data
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

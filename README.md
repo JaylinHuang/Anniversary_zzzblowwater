@@ -29,7 +29,12 @@ npm run test:logic        # 无服务依赖的逻辑自测
 npm run test:all          # 逻辑 + 若干 demo + smoke（smoke 需先起服务）
 ```
 
-## 国内部署
+## 公网部署（Railway）
+
+已绑定 GitHub 时，可用 Railway + 持久卷快速上线（**不要用 Vercel**：SQLite 无法持久化）。  
+步骤见 [`docs/DEPLOY-RAILWAY.md`](docs/DEPLOY-RAILWAY.md)。要点：Volume 挂载到 **`/app/data`**，并设置 `SITE_PASSPHRASE`。
+
+## 国内部署（VPS / Docker）
 
 推荐 Docker / 任意 Linux VPS：
 

@@ -29,10 +29,14 @@ npm run test:logic        # 无服务依赖的逻辑自测
 npm run test:all          # 逻辑 + 若干 demo + smoke（smoke 需先起服务）
 ```
 
-## 公网部署（Railway）
+## 公网部署（推荐 Zeabur）
 
-已绑定 GitHub 时，可用 Railway + 持久卷快速上线（**不要用 Vercel**：SQLite 无法持久化）。  
-步骤见 [`docs/DEPLOY-RAILWAY.md`](docs/DEPLOY-RAILWAY.md)。要点：Volume 挂载到 **`/app/data`**，并设置 `SITE_PASSPHRASE`。
+用 **Docker + 持久卷** 上线（**不要用 Vercel**：SQLite 无法持久化）。
+
+- **Zeabur（优先，国内访问通常更好）**：[`docs/DEPLOY-ZEABUR.md`](docs/DEPLOY-ZEABUR.md)
+- Railway：[`docs/DEPLOY-RAILWAY.md`](docs/DEPLOY-RAILWAY.md)
+
+共同点：Volume 挂载 **`/app/data`**，并设置 `SITE_PASSPHRASE`。
 
 ## 国内部署（VPS / Docker）
 

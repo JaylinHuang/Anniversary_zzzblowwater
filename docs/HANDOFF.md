@@ -38,7 +38,7 @@
 1. **群聊历史导入受阻**：新版 QQ（NT）常无 TXT 导出；需旧版导出、或 OneBot 只覆盖上线后消息、或增强导入格式。
 2. **OpenSpec 与实现漂移**：Agent 已从「自动水位线名册」改为「管理员手动建档」，`member-agents-dm-roster` 规格/README 旧段落需同步。
 3. **真实语料与运营**：样本库可测通，正式上线要导入真实群记录、标金句、配 LLM/OneBot。
-4. **生产部署**：域名、HTTPS、备份策略、改掉默认口令、数据卷挂载。
+4. **生产部署**：优先 Zeabur（见 `docs/DEPLOY-ZEABUR.md`）；Volume 挂 `/app/data`、改口令；勿用 Vercel（SQLite 不持久）。
 5. **体验打磨**：游戏出题仍有部分 `prompt`；移动端导航；空状态与权限文案可继续统一。
 
 ## 3. 新设备上手

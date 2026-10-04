@@ -54,6 +54,24 @@ export function guessDailyLimit() {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 30;
 }
 
+/** Agent RAG：每次对话注入的相关群聊条数 */
+export function ragTopK() {
+  const n = Number(process.env.RAG_TOP_K || 6);
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 20) : 6;
+}
+
+/** 每人最多向量化的历史发言条数（控制费用与体积） */
+export function ragIndexPerQq() {
+  const n = Number(process.env.RAG_INDEX_PER_QQ || 500);
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 5000) : 500;
+}
+
+/** 是否启用向量检索（需配置可用的 embeddings 接口） */
+export function ragEnabled() {
+  const v = (process.env.RAG_ENABLED || "1").trim().toLowerCase();
+  return v !== "0" && v !== "false" && v !== "off";
+}
+
 export type Role = "guest" | "member" | "moderator" | "admin";
 
 export const MODULE_KEYS = [

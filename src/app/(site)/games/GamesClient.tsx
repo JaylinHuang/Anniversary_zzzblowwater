@@ -1,14 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ToastProvider";
+import { GachaCapsule } from "@/components/fx/GachaCapsule";
 import { apiFetch } from "@/lib/api-client";
+import { PUZZLE_DAILY_LIMIT, type QuizStatus } from "@/lib/games-daily";
+
+/* 扭蛋至少转这么久（ms），接口再快也让摇晃动画看得见 */
+const GACHA_MIN_SPIN_MS = 750;
+/* 拼图点亮动画播完后撤掉标记的时间（ms），要盖过 router.refresh 的往返 */
+const PUZZLE_LIGHT_MS = 1500;
 
 export function GamesClient({
   pieces,
   questions,
   canModerate,
+  initialFortune,
+  puzzleRemaining,
+  quizMasters,
 }: {
   pieces: {
     piece_index: number;
@@ -20,13 +30,38 @@ export function GamesClient({
     question: string;
     options: string[];
     badge: string | null;
+    myStatus: QuizStatus;
   }[];
   canModerate: boolean;
+  /** 今天已求到的签（来自 fortune_draws），没求过为 null */
+  initialFortune: string | null;
+  /** 今天还剩几次点亮（来自 puzzle_daily） */
+  puzzleRemaining: number;
+  /** 管理员 / 版主名单，没有题目时提示他们来出题 */
+  quizMasters: string[];
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [gacha, setGacha] = useState("");
-  const [fortune, setFortune] = useState("");
+  const [fortune, setFortune] = useState(initialFortune ?? "");
+  // 本地剩余次数：点亮成功后立即扣减，服务端刷新后再以服务端为准
+  const [remaining, setRemaining] = useState(puzzleRemaining);
+  // 本地作答状态：答题后立即更新，服务端刷新后再以服务端为准
+  const [localStatus, setLocalStatus] = useState<Record<number, QuizStatus>>(
+    {},
+  );
+
+  useEffect(() => {
+    setRemaining(puzzleRemaining);
+  }, [puzzleRemaining]);
+
+  useEffect(() => {
+    setFortune(initialFortune ?? "");
+  }, [initialFortune]);
+
+  useEffect(() => {
+    setLocalStatus({});
+  }, [questions]);
   const [quizMsg, setQuizMsg] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [guess, setGuess] = useState<{
@@ -36,17 +71,34 @@ export function GamesClient({
   } | null>(null);
   const [guessMsg, setGuessMsg] = useState("");
   const [guessBusy, setGuessBusy] = useState(false);
+  /* 扭蛋开出的次数：作为结果区的 key，每次开出都重新播一遍开盖 + 浮现动画 */
+  const [gachaRound, setGachaRound] = useState(0);
+  /* 刚点亮的拼图块编号：播点亮动画用，动画结束后清掉 */
+  const [justLit, setJustLit] = useState<number | null>(null);
+  const litTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* 组件卸载时清掉还没触发的点亮计时器 */
+  useEffect(() => {
+    return () => {
+      if (litTimer.current) clearTimeout(litTimer.current);
+    };
+  }, []);
 
   async function spin() {
     setSpinning(true);
     try {
-      const data = await apiFetch<{
-        member: { display_name: string; bio?: string };
-        quote?: string | null;
-      }>("/api/games", {
-        method: "POST",
-        body: JSON.stringify({ action: "gacha" }),
-      });
+      /* 请求与最短摇晃时间并行等待，两者都完成才开盖 */
+      const [data] = await Promise.all([
+        apiFetch<{
+          member: { display_name: string; bio?: string };
+          quote?: string | null;
+        }>("/api/games", {
+          method: "POST",
+          body: JSON.stringify({ action: "gacha" }),
+        }),
+        new Promise((resolve) => setTimeout(resolve, GACHA_MIN_SPIN_MS)),
+      ]);
+      setGachaRound((n) => n + 1);
       setGacha(
         `${data.member.display_name}\n${data.member.bio || "神秘档案"}\n${
           data.quote ? `「${data.quote}」` : ""
@@ -86,6 +138,10 @@ export function GamesClient({
         ? `答对了！${data.badge ? `获得徽章：${data.badge}` : ""}`
         : "不对哦，再想想群里的梗";
       setQuizMsg(msg);
+      setLocalStatus((prev) => ({
+        ...prev,
+        [questionId]: data.correct ? "correct" : "wrong",
+      }));
       if (data.correct) success(msg);
       else error(msg);
       router.refresh();
@@ -95,15 +151,27 @@ export function GamesClient({
   }
 
   async function light(pieceIndex: number) {
+    // 次数用完不再请求，直接提示
+    if (remaining <= 0) {
+      error(`今日点亮次数已用完（${PUZZLE_DAILY_LIMIT}次）`);
+      return;
+    }
     try {
       await apiFetch("/api/games", {
         method: "POST",
         body: JSON.stringify({ action: "puzzle", pieceIndex }),
       });
+      setRemaining((n) => Math.max(0, n - 1));
+      /* 先在本地把这块标成点亮并播动画，不等 refresh 回来 */
+      setJustLit(pieceIndex);
+      if (litTimer.current) clearTimeout(litTimer.current);
+      litTimer.current = setTimeout(() => setJustLit(null), PUZZLE_LIGHT_MS);
       success("拼图块已点亮");
       router.refresh();
     } catch (e) {
       error(e instanceof Error ? e.message : "点亮失败");
+      // 失败后刷新，以服务端记录校正剩余次数
+      router.refresh();
     }
   }
 
@@ -233,11 +301,21 @@ export function GamesClient({
 
       <section className="panel rounded-2xl p-6">
         <h2 className="text-[var(--amber)]">群友扭蛋</h2>
-        <button className="btn mt-4" type="button" onClick={spin} disabled={spinning}>
-          {spinning ? "运转中…" : "转动扭蛋"}
-        </button>
+        <div className="mt-4 flex items-center gap-5">
+          {/* 胶囊：运转中摇晃，开出后弹盖；key 跟着轮次走，每次都重播开盖 */}
+          <GachaCapsule
+            key={gachaRound}
+            state={spinning ? "spinning" : gacha ? "open" : "idle"}
+          />
+          <button className="btn" type="button" onClick={spin} disabled={spinning}>
+            {spinning ? "运转中…" : "转动扭蛋"}
+          </button>
+        </div>
         {gacha ? (
-          <pre className="mt-4 whitespace-pre-wrap text-sm text-[var(--ink)]">
+          <pre
+            key={gachaRound}
+            className="gacha-result mt-4 whitespace-pre-wrap text-sm text-[var(--ink)]"
+          >
             {gacha}
           </pre>
         ) : null}
@@ -245,10 +323,16 @@ export function GamesClient({
 
       <section className="panel rounded-2xl p-6">
         <h2 className="text-[var(--amber)]">每日签</h2>
-        <button className="btn mt-4" type="button" onClick={drawFortune}>
-          今日求签
-        </button>
-        {fortune ? <p className="mt-4 text-sm">{fortune}</p> : null}
+        {fortune ? (
+          <>
+            <p className="mt-2 text-xs text-[var(--cyan)]">今日已求签</p>
+            <p className="mt-2 text-sm">{fortune}</p>
+          </>
+        ) : (
+          <button className="btn mt-4" type="button" onClick={drawFortune}>
+            今日求签
+          </button>
+        )}
       </section>
 
       <section className="panel rounded-2xl p-6">
@@ -262,9 +346,26 @@ export function GamesClient({
         </div>
         {quizMsg ? <p className="mt-2 text-sm text-[var(--cyan)]">{quizMsg}</p> : null}
         <div className="mt-4 space-y-4">
-          {questions.map((q) => (
+          {questions.map((q) => {
+            const status = localStatus[q.id] ?? q.myStatus;
+            return (
             <div key={q.id} className="rounded-xl border border-[var(--line)] p-4">
               <p className="text-sm">{q.question}</p>
+              <p
+                className={`mt-1 text-xs ${
+                  status === "correct"
+                    ? "text-[var(--cyan)]"
+                    : status === "wrong"
+                      ? "text-[var(--amber)]"
+                      : "text-[var(--fog)]"
+                }`}
+              >
+                {status === "correct"
+                  ? "已答 · 答对了"
+                  : status === "wrong"
+                    ? "已答 · 答错了，可再试"
+                    : "未答"}
+              </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {q.options.map((opt, idx) => (
                   <button
@@ -278,32 +379,52 @@ export function GamesClient({
                 ))}
               </div>
             </div>
-          ))}
+            );
+          })}
           {questions.length === 0 ? (
-            <p className="text-sm text-[var(--fog)]">暂无题目</p>
+            <p className="text-sm text-[var(--fog)]">
+              暂无题目，等{" "}
+              {quizMasters.length
+                ? quizMasters.join("、")
+                : "管理员或版主"}{" "}
+              来出题。
+              {canModerate ? "你可以点右上角「出题」。" : ""}
+            </p>
           ) : null}
         </div>
       </section>
 
       <section className="panel rounded-2xl p-6">
         <h2 className="text-[var(--amber)]">合作拼图</h2>
-        <p className="mt-2 text-sm text-[var(--fog)]">每人每天最多点亮 3 块</p>
+        <p className="mt-2 text-sm text-[var(--fog)]">
+          每人每天最多点亮 {PUZZLE_DAILY_LIMIT} 块 ·{" "}
+          {remaining > 0
+            ? `今天还剩 ${remaining} 次点亮`
+            : "今天的点亮次数已用完，明天再来"}
+        </p>
         <div className="mt-4 grid grid-cols-6 gap-1">
-          {pieces.map((p) => (
-            <button
-              key={p.piece_index}
-              type="button"
-              disabled={!!p.user_id}
-              onClick={() => light(p.piece_index)}
-              title={p.display_name || "未点亮"}
-              className="aspect-square rounded-sm border border-[var(--line)] transition"
-              style={{
-                background: p.user_id
-                  ? `linear-gradient(135deg, rgba(61,224,208,${0.35 + (p.piece_index % 6) * 0.08}), rgba(240,163,94,0.35))`
-                  : "rgba(0,0,0,0.25)",
-              }}
-            />
-          ))}
+          {pieces.map((p) => {
+            /* 刚点亮的块在 refresh 回来前也按点亮画，闪光淡掉后底下已是亮色 */
+            const lighting = justLit === p.piece_index;
+            const lit = !!p.user_id || lighting;
+            return (
+              <button
+                key={p.piece_index}
+                type="button"
+                disabled={!!p.user_id || remaining <= 0}
+                onClick={() => light(p.piece_index)}
+                title={p.display_name || "未点亮"}
+                className={`puzzle-piece aspect-square rounded-sm border border-[var(--line)] transition${
+                  lighting ? " is-lighting" : ""
+                }`}
+                style={{
+                  background: lit
+                    ? `linear-gradient(135deg, rgba(61,224,208,${0.35 + (p.piece_index % 6) * 0.08}), rgba(240,163,94,0.35))`
+                    : "rgba(0,0,0,0.25)",
+                }}
+              />
+            );
+          })}
         </div>
       </section>
     </div>

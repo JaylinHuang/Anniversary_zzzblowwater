@@ -25,6 +25,25 @@ function previousDay(dateKey: string): string {
   return todayKey(dt);
 }
 
+/**
+ * 最近 N 天（含今天）逐日盖章情况，按日期从早到晚排列。
+ * 只有 dates 里真实存在的日期才算已盖，其余一律为未盖。
+ */
+export function recentDaysStatus(
+  dates: string[],
+  today: string,
+  days = 7,
+): { date: string; checkedIn: boolean }[] {
+  const set = new Set(dates);
+  const list: { date: string; checkedIn: boolean }[] = [];
+  let cursor = today;
+  for (let i = 0; i < days; i++) {
+    list.unshift({ date: cursor, checkedIn: set.has(cursor) });
+    cursor = previousDay(cursor);
+  }
+  return list;
+}
+
 /** 从今天（或昨天若今日未签）往回连算连续天数 */
 export function computeStreak(
   dates: string[],

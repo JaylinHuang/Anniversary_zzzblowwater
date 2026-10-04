@@ -44,14 +44,17 @@ export default async function AgentsPage() {
                 className="block transition hover:opacity-90"
               >
                 {a.illustration_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={a.illustration_url}
-                    alt={a.display_name}
-                    className="mb-3 h-40 w-full rounded-xl object-cover"
-                  />
+                  <div className="mb-3 aspect-[3/5] w-full overflow-hidden rounded-xl bg-[rgba(61,224,208,0.06)]">
+                    {/* 素材多为 900×1500（3:5），contain 显示全身 */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={a.illustration_url}
+                      alt={a.display_name}
+                      className="h-full w-full object-contain object-center"
+                    />
+                  </div>
                 ) : (
-                  <div className="mb-3 flex h-40 items-center justify-center rounded-xl bg-[rgba(61,224,208,0.08)] text-[var(--fog)]">
+                  <div className="mb-3 flex aspect-[3/5] items-center justify-center rounded-xl bg-[rgba(61,224,208,0.08)] text-[var(--fog)]">
                     暂无插画
                   </div>
                 )}

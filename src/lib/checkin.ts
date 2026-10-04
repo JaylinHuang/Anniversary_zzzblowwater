@@ -1,4 +1,4 @@
-import { computeStreak, stampForDate } from "@/lib/checkin-rules";
+import { computeStreak, recentDaysStatus, stampForDate } from "@/lib/checkin-rules";
 import { todayKey } from "@/lib/date-key";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
 
@@ -9,6 +9,8 @@ export type CheckinStatus = {
   streak: number;
   total: number;
   recent: { date: string; stamp: string }[];
+  /** 最近 7 天（含今天）逐日是否已盖章，从早到晚 */
+  recentDays: { date: string; checkedIn: boolean }[];
 };
 
 export async function getCheckinStatus(userId: number): Promise<CheckinStatus> {
@@ -38,6 +40,7 @@ export async function getCheckinStatus(userId: number): Promise<CheckinStatus> {
       date: r.checkin_date,
       stamp: r.stamp,
     })),
+    recentDays: recentDaysStatus(dates, today, 7),
   };
 }
 

@@ -147,6 +147,30 @@ export function AgentAdminActions({
     }
   }
 
+  async function reindexRag() {
+    const ok = await confirm({
+      title: "重建向量索引",
+      message:
+        "将按该群友近期发言生成 embedding（默认最多约 500 条）。需已配置可用的 Embeddings 接口。",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const data = await apiFetch<{ indexed: number; model: string }>(
+        "/api/agents",
+        {
+          method: "POST",
+          body: JSON.stringify({ action: "reindex-rag", id }),
+        },
+      );
+      success(`已索引 ${data.indexed} 条 · ${data.model}`);
+    } catch (err) {
+      error(err instanceof Error ? err.message : "索引失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function remove() {
     const ok = await confirm({
       title: "停用 Agent",
@@ -177,6 +201,14 @@ export function AgentAdminActions({
         onClick={() => void rebuild()}
       >
         重炼人设
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost"
+        disabled={busy}
+        onClick={() => void reindexRag()}
+      >
+        重建向量索引
       </button>
       <button
         type="button"

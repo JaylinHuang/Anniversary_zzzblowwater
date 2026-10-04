@@ -5,34 +5,32 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { SITE_BRAND } from "@/lib/constants";
 import { isNavActive, type NavLink } from "@/lib/nav";
+import { AccountMenu } from "@/components/AccountMenu";
 
-function NavItem({
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** 频道标签：编号 + 名称；当前项为实心斜切 */
+function NavTab({
   href,
   label,
+  index,
   active,
   accent,
 }: {
   href: string;
   label: string;
+  index: string;
   active: boolean;
   accent?: boolean;
 }) {
   return (
     <Link
       href={href}
-      className={`whitespace-nowrap transition ${
-        active
-          ? "text-[var(--cyan)]"
-          : accent
-            ? "text-[var(--amber)] hover:text-[var(--amber-glow)]"
-            : "hover:text-[var(--ink)]"
-      }`}
+      className={`nav-tab ${active ? "is-active" : ""} ${accent ? "is-accent" : ""}`}
       aria-current={active ? "page" : undefined}
     >
+      <span className="nav-idx">{index}</span>
       {label}
-      {active ? (
-        <span className="mt-1 block h-0.5 rounded-full bg-[var(--cyan)]" />
-      ) : null}
     </Link>
   );
 }
@@ -42,16 +40,19 @@ export function SiteNav({
   more,
   showAdmin,
   displayName,
+  avatarUrl,
 }: {
   primary: NavLink[];
   more: NavLink[];
   showAdmin: boolean;
   displayName: string;
+  avatarUrl?: string | null;
 }) {
   const pathname = usePathname() || "/";
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const moreActive = more.some((l) => isNavActive(pathname, l.href));
+  const total = primary.length + more.length;
 
   useEffect(() => {
     setOpen(false);
@@ -66,18 +67,23 @@ export function SiteNav({
   }, []);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--bg-deep)_82%,transparent)] backdrop-blur-md">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-        <Link href="/" className="brand-font text-lg text-[var(--cyan)]">
-          {SITE_BRAND}
+    <header className="site-header sticky top-0 z-40">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-2.5">
+        {/* 品牌贴纸 + 频道计数 */}
+        <Link href="/" className="flex items-center gap-3" aria-label={SITE_BRAND}>
+          <span className="sticker sticker-brand">{SITE_BRAND}</span>
+          <span className="eyebrow hidden lg:inline">
+            CH {pad2(total)} // New Eridu
+          </span>
         </Link>
 
-        <nav className="hidden items-center gap-4 text-sm text-[var(--fog)] md:flex">
-          {primary.map((l) => (
-            <NavItem
+        <nav className="hidden items-center gap-1 md:flex" aria-label="频道">
+          {primary.map((l, i) => (
+            <NavTab
               key={l.key}
               href={l.href}
               label={l.label}
+              index={pad2(i + 1)}
               active={isNavActive(pathname, l.href)}
             />
           ))}
@@ -86,31 +92,34 @@ export function SiteNav({
             <div className="relative" ref={menuRef}>
               <button
                 type="button"
-                className={`transition ${
-                  moreActive || open
-                    ? "text-[var(--cyan)]"
-                    : "hover:text-[var(--ink)]"
-                }`}
+                className={`nav-tab ${moreActive || open ? "is-active" : ""}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   setOpen((v) => !v);
                 }}
                 aria-expanded={open}
+                aria-haspopup="menu"
               >
-                更多{open ? " ▴" : " ▾"}
+                <span className="nav-idx">{pad2(primary.length + 1)}+</span>
+                更多
+                <span className="text-[0.6rem] opacity-70">{open ? "▴" : "▾"}</span>
               </button>
               {open ? (
-                <div className="panel absolute right-0 mt-2 min-w-[10rem] rounded-xl p-2 shadow-lg">
-                  {more.map((l) => (
+                <div
+                  className="panel panel-solid absolute right-0 mt-2 min-w-[12rem] p-1.5 shadow-lg"
+                  role="menu"
+                >
+                  <p className="eyebrow px-3 pb-1 pt-1.5 text-[0.6rem]">More Channels</p>
+                  {more.map((l, i) => (
                     <Link
                       key={l.key}
                       href={l.href}
-                      className={`block rounded-lg px-3 py-2 text-sm transition hover:bg-white/5 ${
-                        isNavActive(pathname, l.href)
-                          ? "text-[var(--cyan)]"
-                          : "text-[var(--fog)]"
-                      }`}
+                      role="menuitem"
+                      className={`menu-item ${isNavActive(pathname, l.href) ? "is-active" : ""}`}
                     >
+                      <span className="mono text-[0.62rem] opacity-70">
+                        {pad2(primary.length + i + 1)}
+                      </span>
                       {l.label}
                     </Link>
                   ))}
@@ -120,55 +129,49 @@ export function SiteNav({
           ) : null}
 
           {showAdmin ? (
-            <NavItem
+            <NavTab
               href="/admin"
               label="管理"
+              index="ADM"
               active={isNavActive(pathname, "/admin")}
               accent
             />
           ) : null}
         </nav>
 
-        <div className="text-sm text-[var(--fog)]">{displayName}</div>
+        <AccountMenu displayName={displayName} avatarUrl={avatarUrl} />
       </div>
 
-      {/* 手机：主入口横滑 + 更多折叠 */}
-      <div className="flex items-center gap-2 overflow-x-auto px-4 pb-3 text-xs text-[var(--fog)] md:hidden">
-        {primary.map((l) => (
+      {/* 手机：频道横滑 */}
+      <div className="flex items-center gap-1.5 overflow-x-auto px-4 pb-2.5 md:hidden [scrollbar-width:none]">
+        {primary.map((l, i) => (
           <Link
             key={l.key}
             href={l.href}
-            className={`whitespace-nowrap rounded-full border px-3 py-1 ${
-              isNavActive(pathname, l.href)
-                ? "border-[rgba(61,224,208,0.55)] text-[var(--cyan)]"
-                : "border-[var(--line)]"
-            }`}
+            className={`nav-chip ${isNavActive(pathname, l.href) ? "is-active" : ""}`}
           >
+            <span className="mono text-[0.6rem] opacity-70">{pad2(i + 1)}</span>
             {l.label}
           </Link>
         ))}
-        {more.map((l) => (
+        {more.map((l, i) => (
           <Link
             key={l.key}
             href={l.href}
-            className={`whitespace-nowrap rounded-full border px-3 py-1 opacity-80 ${
-              isNavActive(pathname, l.href)
-                ? "border-[rgba(61,224,208,0.55)] text-[var(--cyan)]"
-                : "border-[var(--line)]"
-            }`}
+            className={`nav-chip ${isNavActive(pathname, l.href) ? "is-active" : ""}`}
           >
+            <span className="mono text-[0.6rem] opacity-70">
+              {pad2(primary.length + i + 1)}
+            </span>
             {l.label}
           </Link>
         ))}
         {showAdmin ? (
           <Link
             href="/admin"
-            className={`whitespace-nowrap rounded-full border px-3 py-1 text-[var(--amber)] ${
-              isNavActive(pathname, "/admin")
-                ? "border-[rgba(240,163,94,0.55)]"
-                : "border-[rgba(240,163,94,0.35)]"
-            }`}
+            className={`nav-chip is-accent ${isNavActive(pathname, "/admin") ? "is-active" : ""}`}
           >
+            <span className="mono text-[0.6rem] opacity-70">ADM</span>
             管理
           </Link>
         ) : null}

@@ -3,6 +3,7 @@ import { assertModuleEnabled } from "@/lib/modules";
 import { getSessionUser } from "@/lib/auth";
 import { getAgentById, listAgentGroupChat } from "@/lib/roster";
 import { getOrCreateActiveSession, listSessionMessages } from "@/lib/dm";
+import { getDmQuota } from "@/lib/dm-limit";
 import { GROUP_NAME } from "@/lib/constants";
 import { AgentDmClient } from "./AgentDmClient";
 
@@ -22,6 +23,8 @@ export default async function AgentDmPage({
   const session = await getOrCreateActiveSession(user.id, agent.id);
   const messages = await listSessionMessages(user.id, session.id);
   const groupLog = await listAgentGroupChat(agent.qq, 16);
+  // 打开单聊即展示今日额度（按本地日期统计）
+  const dmQuota = await getDmQuota(user.id);
 
   return (
     <div>
@@ -30,12 +33,14 @@ export default async function AgentDmPage({
       </p>
       <div className="mt-3 flex flex-wrap items-start gap-5">
         {agent.illustration_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={agent.illustration_url}
-            alt={agent.display_name}
-            className="h-28 w-28 rounded-2xl object-cover"
-          />
+          <div className="aspect-[3/5] w-36 shrink-0 overflow-hidden rounded-2xl bg-[rgba(61,224,208,0.06)] sm:w-44">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={agent.illustration_url}
+              alt={agent.display_name}
+              className="h-full w-full object-contain object-center"
+            />
+          </div>
         ) : null}
         <div>
           <h1 className="brand-font text-3xl text-[var(--cyan)]">
@@ -74,6 +79,7 @@ export default async function AgentDmPage({
         agentName={agent.display_name}
         groupName={GROUP_NAME}
         initialSessionId={session.id}
+        initialQuota={{ used: dmQuota.used, limit: dmQuota.limit }}
         initialMessages={messages.map((m) => ({
           id: m.id,
           role: m.role as "user" | "assistant",

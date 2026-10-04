@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import { requireAdmin, requireModerator, requireUser } from "@/lib/auth";
 import { assertModuleEnabled } from "@/lib/modules";
-import { parseQqTxt, previewStats } from "@/lib/chat-parser";
+import {
+  commitMessages,
+  messagesFromTxt,
+  messagesFromXlsx,
+  previewFromTxt,
+  previewFromXlsx,
+} from "@/lib/archive-import";
 import { escapeLikePattern } from "@/lib/capsule-rules";
-import { desensitize } from "@/lib/desensitize";
-import { getDb, rowsFrom, withDb, rowFrom } from "@/lib/db";
+import { getDb, rowsFrom, withDb } from "@/lib/db";
+
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
@@ -36,68 +44,93 @@ export async function GET(req: Request) {
   }
 }
 
+async function parseBody(req: Request): Promise<{
+  action: string;
+  text?: string;
+  filename?: string;
+  batchId?: number;
+  messageId?: number;
+  on?: boolean;
+  fileBuf?: Buffer;
+  fileName?: string;
+}> {
+  const ctype = req.headers.get("content-type") || "";
+  if (ctype.includes("multipart/form-data")) {
+    const form = await req.formData();
+    const action = String(form.get("action") || "preview");
+    const file = form.get("file");
+    let fileBuf: Buffer | undefined;
+    let fileName: string | undefined;
+    if (file instanceof File && file.size > 0) {
+      fileBuf = Buffer.from(await file.arrayBuffer());
+      fileName = file.name || "import.xlsx";
+    }
+    return {
+      action,
+      text: form.get("text") != null ? String(form.get("text")) : undefined,
+      filename:
+        form.get("filename") != null
+          ? String(form.get("filename"))
+          : fileName,
+      batchId: form.get("batchId") != null ? Number(form.get("batchId")) : undefined,
+      messageId:
+        form.get("messageId") != null
+          ? Number(form.get("messageId"))
+          : undefined,
+      on: form.get("on") != null ? form.get("on") !== "false" : undefined,
+      fileBuf,
+      fileName,
+    };
+  }
+  const body = await req.json().catch(() => ({}));
+  return {
+    action: String(body.action || "preview"),
+    text: body.text != null ? String(body.text) : undefined,
+    filename: body.filename != null ? String(body.filename) : undefined,
+    batchId: body.batchId != null ? Number(body.batchId) : undefined,
+    messageId: body.messageId != null ? Number(body.messageId) : undefined,
+    on: body.on,
+  };
+}
+
 export async function POST(req: Request) {
   try {
     await assertModuleEnabled("chat-archive");
     const user = await requireAdmin();
-    const body = await req.json();
-    const action = String(body.action || "preview");
+    const body = await parseBody(req);
+    const action = body.action;
 
     if (action === "preview") {
-      const raw = String(body.text || "");
-      const { messages, errors } = parseQqTxt(raw);
+      if (body.fileBuf) {
+        const preview = previewFromXlsx(body.fileBuf);
+        return NextResponse.json({
+          preview,
+          errors: preview.errors,
+        });
+      }
+      const preview = previewFromTxt(body.text || "");
       return NextResponse.json({
-        preview: previewStats(messages),
-        errors: errors.slice(0, 20),
+        preview,
+        errors: preview.errors,
       });
     }
 
     if (action === "commit") {
-      const raw = String(body.text || "");
-      const filename = String(body.filename || "import.txt");
-      const { messages } = parseQqTxt(raw);
-      if (!messages.length) {
-        return NextResponse.json({ error: "没有可导入的消息" }, { status: 400 });
+      let messages;
+      let filename = body.filename || "import.txt";
+      if (body.fileBuf) {
+        messages = messagesFromXlsx(body.fileBuf);
+        filename = body.fileName || body.filename || "qce-export.xlsx";
+      } else {
+        messages = messagesFromTxt(body.text || "");
+        filename = body.filename || "qq-export.txt";
       }
-      const stats = previewStats(messages);
-      const batchId = await withDb((db) => {
-        db.run(
-          `INSERT INTO import_batches (filename, message_count, time_start, time_end, created_by)
-           VALUES (?, ?, ?, ?, ?)`,
-          [filename, stats.count, stats.timeStart, stats.timeEnd, user.id],
-        );
-        const batch = rowFrom<{ id: number }>(
-          db,
-          `SELECT id FROM import_batches ORDER BY id DESC LIMIT 1`,
-        )!;
-        for (const m of messages) {
-          const content = desensitize(m.content);
-          db.run(
-            `INSERT INTO chat_messages (batch_id, sender, qq_number, sent_at, content, content_raw)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [batch.id, m.sender, m.qq, m.sentAt, content, m.content],
-          );
-        }
-        return batch.id;
+      const result = await commitMessages({
+        messages,
+        filename,
+        userId: user.id,
       });
-      // 刷新已绑定 Agent 的语料计数
-      try {
-        const { listTrackedAgentQqs, bumpAgentSourceCount } = await import(
-          "@/lib/roster"
-        );
-        const qqs = await listTrackedAgentQqs();
-        for (const qq of qqs) {
-          await bumpAgentSourceCount(qq);
-        }
-      } catch {
-        /* 忽略 */
-      }
-      return NextResponse.json({
-        ok: true,
-        batchId,
-        count: stats.count,
-        withQq: stats.withQq,
-      });
+      return NextResponse.json({ ok: true, ...result });
     }
 
     if (action === "rollback") {
@@ -106,6 +139,14 @@ export async function POST(req: Request) {
         db.run(`UPDATE import_batches SET status = 'rolled_back' WHERE id = ?`, [
           batchId,
         ]);
+        // 软删对应向量，避免检索到已撤销批次
+        db.run(
+          `DELETE FROM chat_embeddings
+           WHERE message_id IN (
+             SELECT id FROM chat_messages WHERE batch_id = ?
+           )`,
+          [batchId],
+        );
       });
       return NextResponse.json({ ok: true });
     }

@@ -1,21 +1,28 @@
-import fs from "fs";
-import path from "path";
-import initSqlJs from "sql.js";
+import { getDb, rowsFrom } from "../src/lib/db";
 
 async function main() {
-  const SQL = await initSqlJs({
-    locateFile: (f) => path.join("node_modules/sql.js/dist", f),
-  });
-  const db = new SQL.Database(fs.readFileSync("data/app.db"));
-  const all = db.exec(`SELECT id, display_name, role FROM users ORDER BY id`);
+  const db = await getDb();
+  const users = rowsFrom<{
+    id: number;
+    display_name: string;
+    role: string;
+  }>(db, `SELECT id, display_name, role FROM users ORDER BY id`);
   console.log("users:");
-  for (const row of all[0]?.values || []) {
-    console.log(`  #${row[0]} ${row[1]} → ${row[2]}`);
+  for (const u of users) {
+    console.log(`  #${u.id} ${u.display_name} → ${u.role}`);
   }
-  const admins = db.exec(
-    `SELECT id, display_name FROM users WHERE role = 'admin'`,
+  const admins = users.filter((u) => u.role === "admin");
+  console.log("admin count:", admins.length);
+  const idx = db.exec(
+    `SELECT name FROM sqlite_master WHERE type='index' AND name='idx_users_display_name_nocase'`,
   );
-  console.log("admin count:", admins[0]?.values?.length ?? 0);
+  console.log(
+    "unique name index:",
+    idx[0]?.values?.length ? "ok" : "missing",
+  );
 }
 
-main();
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

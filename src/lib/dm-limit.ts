@@ -1,17 +1,26 @@
+import type { Database } from "sql.js";
 import { agentDmDailyLimit } from "@/lib/constants";
 import { todayKey } from "@/lib/date-key";
 import { getDb, rowFrom } from "@/lib/db";
 
-export async function countUserDmTurnsToday(userId: number): Promise<number> {
-  const db = await getDb();
+/** 同步统计：该用户「本地今天」已发出的用户消息条数（按 day_key，与 todayKey 同口径） */
+export function countUserDmTurnsTodaySync(
+  db: Database,
+  userId: number,
+  dayKey = todayKey(),
+): number {
   const row = rowFrom<{ c: number }>(
     db,
     `SELECT COUNT(*) as c FROM agent_dm_messages
-     WHERE user_id = ? AND role = 'user'
-       AND date(created_at) = date(?)`,
-    [userId, todayKey()],
+     WHERE user_id = ? AND role = 'user' AND day_key = ?`,
+    [userId, dayKey],
   );
   return Number(row?.c ?? 0);
+}
+
+export async function countUserDmTurnsToday(userId: number): Promise<number> {
+  const db = await getDb();
+  return countUserDmTurnsTodaySync(db, userId);
 }
 
 export async function assertDmQuota(userId: number) {

@@ -62,13 +62,16 @@ export function parseQqTxt(raw: string): {
 }
 
 export function isCountableTextMessage(content: string): boolean {
-  const t = content.trim();
+  const raw = content.trim();
+  if (!raw) return false;
+  // 去掉 QCE / QQ 导出的媒体占位后再判断是否还有有效文字
+  const t = raw
+    .replace(/\[图片:[^\]]*\]/gi, "")
+    .replace(/\[image:[^\]]*\]/gi, "")
+    .replace(/\[(图片|语音|视频|文件|表情|动画表情|分享)[^\]]*\]/gi, "")
+    .trim();
   if (!t) return false;
-  // 常见导出占位，不计入名册票数
-  if (/^\[(图片|语音|视频|文件|表情|动画表情|分享).*\]$/i.test(t)) return false;
-  if (t === "[图片]" || t === "[语音]" || t === "[视频]" || t === "[文件]") {
-    return false;
-  }
+  if (/^\[(图片|语音|视频|文件|表情|动画表情|分享).*\]$/i.test(raw)) return false;
   return true;
 }
 

@@ -13,6 +13,8 @@ export type SessionUser = {
   role: Role;
   publicProfile: boolean;
   optOutLeaderboard: boolean;
+  /** 头像 URL，如 /uploads/xxx.png；未设置则为 null */
+  avatarUrl: string | null;
 };
 
 function hashToken(token: string) {
@@ -79,20 +81,24 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     role: string;
     public_profile: number;
     opt_out_leaderboard: number;
+    avatar_url: string | null;
   }>(
     db,
-    `SELECT u.id, u.display_name, u.role, u.public_profile, u.opt_out_leaderboard
+    `SELECT u.id, u.display_name, u.role, u.public_profile, u.opt_out_leaderboard,
+            u.avatar_url
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token = ?`,
     [hashToken(token)],
   );
   if (!row) return null;
+  const avatar = (row.avatar_url || "").trim();
   return {
     id: row.id,
     displayName: row.display_name,
     role: row.role as Role,
     publicProfile: !!row.public_profile,
     optOutLeaderboard: !!row.opt_out_leaderboard,
+    avatarUrl: avatar || null,
   };
 }
 

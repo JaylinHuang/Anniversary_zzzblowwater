@@ -5,6 +5,12 @@ import { guessDailyLimit } from "@/lib/constants";
 import { todayKey } from "@/lib/date-key";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
+import {
+  PUZZLE_DAILY_LIMIT,
+  gamesDayKey,
+  puzzleRemaining,
+  quizStatusFrom,
+} from "@/lib/games-daily";
 import { buildGuessRound, gradeGuess } from "@/lib/guess-speaker";
 
 const FORTUNES = [
@@ -18,15 +24,35 @@ const FORTUNES = [
   "签面空白：说明今天由你来写故事。",
 ];
 
+/** 玩法当天的日期键：本地年月日，与首页签到（todayKey）同一天 */
 function dayKey(d = new Date()) {
-  return d.toISOString().slice(0, 10);
+  return gamesDayKey(d);
 }
 
 export async function GET() {
   try {
     await assertModuleEnabled("party-games");
-    await requireUser();
+    const user = await requireUser();
     const db = await getDb();
+    const today = dayKey();
+    // 今日签：来自 fortune_draws
+    const fortuneRow = rowFrom<{ slip: string }>(
+      db,
+      `SELECT slip FROM fortune_draws WHERE user_id = ? AND day_key = ?`,
+      [user.id, today],
+    );
+    // 今日已点亮次数：来自 puzzle_daily
+    const dailyRow = rowFrom<{ count: number }>(
+      db,
+      `SELECT count FROM puzzle_daily WHERE user_id = ? AND day_key = ?`,
+      [user.id, today],
+    );
+    // 我的答题记录：来自 quiz_answers
+    const myAnswers = rowsFrom<{ question_id: number; correct: number }>(
+      db,
+      `SELECT question_id, correct FROM quiz_answers WHERE user_id = ?`,
+      [user.id],
+    );
     const pieces = rowsFrom<{
       piece_index: number;
       user_id: number | null;
@@ -46,7 +72,15 @@ export async function GET() {
       ...q,
       options: JSON.parse(String(q.options || "[]")),
     }));
-    return NextResponse.json({ pieces, questions });
+    return NextResponse.json({
+      pieces,
+      questions: questions.map((q) => {
+        const mine = myAnswers.find((a) => a.question_id === Number(q.id));
+        return { ...q, myStatus: quizStatusFrom(mine?.correct) };
+      }),
+      fortune: fortuneRow?.slip ?? null,
+      puzzleRemaining: puzzleRemaining(dailyRow?.count),
+    });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "ERROR" },
@@ -163,6 +197,9 @@ export async function POST(req: Request) {
     if (action === "puzzle") {
       const pieceIndex = Number(body.pieceIndex);
       const key = dayKey();
+      if (!Number.isInteger(pieceIndex)) {
+        return NextResponse.json({ error: "拼图块不存在" }, { status: 400 });
+      }
       await withDb((db) => {
         const piece = rowFrom<{ user_id: number | null }>(
           db,
@@ -177,7 +214,9 @@ export async function POST(req: Request) {
           [user.id, key],
         );
         const count = daily?.count ?? 0;
-        if (count >= 3) throw new Error("今日点亮次数已用完（3次）");
+        if (puzzleRemaining(count) <= 0) {
+          throw new Error(`今日点亮次数已用完（${PUZZLE_DAILY_LIMIT}次）`);
+        }
         db.run(
           `UPDATE puzzle_pieces SET user_id = ?, lit_at = datetime('now') WHERE piece_index = ?`,
           [user.id, pieceIndex],
@@ -211,14 +250,18 @@ export async function POST(req: Request) {
     if (action === "guess-start") {
       const db = await getDb();
       const limit = guessDailyLimit();
-      const used = Number(
-        rowFrom<{ c: number }>(
-          db,
-          `SELECT COUNT(*) as c FROM guess_rounds
-           WHERE user_id = ? AND date(created_at) = date(?)`,
-          [user.id, todayKey()],
-        )?.c ?? 0,
-      );
+      // 本次请求统一使用同一个本地日期（与 todayKey 一致），计数与写入都用它
+      const today = todayKey();
+      const countUsed = (d: typeof db) =>
+        Number(
+          rowFrom<{ c: number }>(
+            d,
+            `SELECT COUNT(*) as c FROM guess_rounds
+             WHERE user_id = ? AND day_key = ?`,
+            [user.id, today],
+          )?.c ?? 0,
+        );
+      const used = countUsed(db);
       if (used >= limit) {
         return NextResponse.json(
           { error: `今日猜题已达上限（${limit} 题）` },
@@ -247,11 +290,13 @@ export async function POST(req: Request) {
         );
       }
       const id = randomBytes(12).toString("hex");
-      await withDb((db2) => {
+      const inserted = await withDb((db2) => {
+        // 写入前在同一同步段内再核对一次上限，避免并发请求越过上限
+        if (countUsed(db2) >= limit) return false;
         db2.run(
           `INSERT INTO guess_rounds
-           (id, user_id, message_id, content, options, answer_index)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+           (id, user_id, message_id, content, options, answer_index, day_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             user.id,
@@ -259,9 +304,17 @@ export async function POST(req: Request) {
             round.content,
             JSON.stringify(round.options),
             round.answerIndex,
+            today,
           ],
         );
+        return true;
       });
+      if (!inserted) {
+        return NextResponse.json(
+          { error: `今日猜题已达上限（${limit} 题）` },
+          { status: 400 },
+        );
+      }
       return NextResponse.json({
         ok: true,
         roundId: id,

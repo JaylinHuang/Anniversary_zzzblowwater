@@ -21,19 +21,35 @@ export default async function MemberDetailPage({
     badges: string;
     public_profile: number;
     role: string;
+    avatar_url: string | null;
   }>(db, `SELECT * FROM users WHERE id = ?`, [Number(id)]);
   if (!m) notFound();
   if (!m.public_profile && m.id !== me?.id && me?.role !== "admin") notFound();
 
   const tags = JSON.parse(m.tags || "[]") as string[];
   const badges = JSON.parse(m.badges || "[]") as string[];
+  const initial = (m.display_name || "?").slice(0, 1);
 
   return (
     <div className="panel max-w-xl rounded-2xl p-8">
       <p className="text-xs tracking-[0.2em] text-[var(--amber)]">CODEX</p>
-      <h1 className="brand-font mt-2 text-4xl text-[var(--cyan)]">
-        {m.display_name}
-      </h1>
+      <div className="mt-3 flex items-center gap-4">
+        <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[rgba(61,224,208,0.4)] bg-[rgba(61,224,208,0.1)] brand-font text-xl text-[var(--cyan)]">
+          {m.avatar_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={m.avatar_url}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            initial
+          )}
+        </span>
+        <h1 className="brand-font text-4xl text-[var(--cyan)]">
+          {m.display_name}
+        </h1>
+      </div>
       <p className="mt-4 text-[var(--fog)]">{m.bio || "神秘绳匠，暂无档案。"}</p>
       {m.mains ? (
         <p className="mt-3 text-sm text-[var(--amber)]">擅长：{m.mains}</p>

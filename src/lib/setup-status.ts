@@ -3,6 +3,7 @@ import { getDb, rowFrom } from "@/lib/db";
 import { isLlmConfigured } from "@/lib/llm";
 import { countActiveQuotes } from "@/lib/daily-quote";
 import { hasDbPassphrase } from "@/lib/passphrase";
+import { isMailConfigured } from "@/lib/mail";
 
 export type SetupItem = {
   id: string;
@@ -60,6 +61,13 @@ export async function getSetupStatus(): Promise<{
       label: "至少一位建档用户",
       ok: userCount >= 1,
       hint: "打开 /gate 注册第一位管理员",
+      critical: true,
+    },
+    {
+      id: "qq-smtp",
+      label: "QQ 邮箱发信已配置（建档验证码）",
+      ok: isMailConfigured(),
+      hint: ".env 设置 QQ_SMTP_USER / QQ_SMTP_PASS（QQ 邮箱 SMTP 授权码）",
       critical: true,
     },
     {

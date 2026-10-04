@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import initSqlJs, { Database, SqlValue } from "sql.js";
+import { todayKey } from "./date-key";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "app.db");
@@ -41,6 +42,13 @@ function migrate(db: Database) {
       user_id INTEGER NOT NULL,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS qq_email_codes (
+      qq TEXT PRIMARY KEY,
+      code_hash TEXT NOT NULL,
+      sent_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS feature_flags (
@@ -163,6 +171,7 @@ function migrate(db: Database) {
       question TEXT NOT NULL,
       options TEXT NOT NULL,
       show_live INTEGER DEFAULT 1,
+      ends_at TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -287,6 +296,7 @@ function migrate(db: Database) {
       agent_id INTEGER NOT NULL,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
+      day_key TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY(session_id) REFERENCES agent_dm_sessions(id)
     );
@@ -308,9 +318,30 @@ function migrate(db: Database) {
       answer_index INTEGER NOT NULL,
       answered INTEGER DEFAULT 0,
       correct INTEGER,
+      day_key TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS chat_embeddings (
+      message_id INTEGER PRIMARY KEY,
+      qq_number TEXT NOT NULL,
+      model TEXT NOT NULL,
+      dims INTEGER NOT NULL,
+      vector_json TEXT NOT NULL,
+      content_preview TEXT DEFAULT '',
+      updated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(message_id) REFERENCES chat_messages(id)
+    );
   `);
+
+  try {
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_chat_embeddings_qq
+       ON chat_embeddings(qq_number)`,
+    );
+  } catch {
+    /* ignore */
+  }
 
   // 默认模块开关
   const modules = [
@@ -388,6 +419,106 @@ function migrate(db: Database) {
     db.run(`ALTER TABLE chat_messages ADD COLUMN qq_number TEXT`);
   } catch {
     /* 已存在 */
+  }
+  try {
+    db.run(`ALTER TABLE polls ADD COLUMN ends_at TEXT`);
+  } catch {
+    /* 已存在 */
+  }
+
+  // 猜说话人：新增「本地日期」列，每日上限按它计数（不再用 UTC 的 created_at）
+  try {
+    db.run(`ALTER TABLE guess_rounds ADD COLUMN day_key TEXT`);
+  } catch {
+    /* 已存在 */
+  }
+  try {
+    // 旧数据补齐：created_at 是 UTC 时间，转成本地时间后再取本地年月日（与 todayKey 同口径）
+    const legacy = db.exec(
+      `SELECT id, created_at FROM guess_rounds WHERE day_key IS NULL`,
+    );
+    const rows = legacy[0]?.values ?? [];
+    for (const [id, createdAt] of rows) {
+      const utc = new Date(`${String(createdAt).replace(" ", "T")}Z`);
+      const key = Number.isNaN(utc.getTime()) ? todayKey() : todayKey(utc);
+      db.run(`UPDATE guess_rounds SET day_key = ? WHERE id = ?`, [
+        key,
+        String(id),
+      ]);
+    }
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_guess_rounds_user_day
+       ON guess_rounds(user_id, day_key)`,
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // Agent 单聊：新增「本地日期」列，每日额度按它计数（不再用 UTC 的 created_at）
+  try {
+    db.run(`ALTER TABLE agent_dm_messages ADD COLUMN day_key TEXT`);
+  } catch {
+    /* 已存在 */
+  }
+  try {
+    // 旧数据补齐：created_at 是 UTC 时间，转成本地时间后再取本地年月日（与 todayKey 同口径）
+    const legacy = db.exec(
+      `SELECT id, created_at FROM agent_dm_messages WHERE day_key IS NULL`,
+    );
+    const rows = legacy[0]?.values ?? [];
+    for (const [id, createdAt] of rows) {
+      const utc = new Date(`${String(createdAt).replace(" ", "T")}Z`);
+      const key = Number.isNaN(utc.getTime()) ? todayKey() : todayKey(utc);
+      db.run(`UPDATE agent_dm_messages SET day_key = ? WHERE id = ?`, [
+        key,
+        Number(id),
+      ]);
+    }
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_agent_dm_messages_user_day
+       ON agent_dm_messages(user_id, role, day_key)`,
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // 历史同名去重：保留最小 id，其余改成「昵称#id」
+  try {
+    const all = db.exec(
+      `SELECT id, display_name FROM users ORDER BY id ASC`,
+    );
+    const seen = new Map<string, number>();
+    for (const row of all[0]?.values || []) {
+      const id = Number(row[0]);
+      const name = String(row[1]);
+      const key = name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, id);
+        continue;
+      }
+      db.run(`UPDATE users SET display_name = ? WHERE id = ?`, [
+        `${name}#${id}`,
+        id,
+      ]);
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_display_name_nocase
+       ON users(display_name COLLATE NOCASE)`,
+    );
+  } catch {
+    /* 仍有冲突则下次启动再试 */
+  }
+  try {
+    db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_qq_number
+       ON users(qq_number) WHERE qq_number IS NOT NULL AND qq_number != ''`,
+    );
+  } catch {
+    /* 仍有冲突则下次启动再试 */
   }
 
   // 旧多 Agent 房间 / sender_key 人设表 → 迁到 QQ 名册模型

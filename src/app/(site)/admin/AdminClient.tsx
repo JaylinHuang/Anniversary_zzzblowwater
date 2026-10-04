@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ToastProvider";
+import { UserChip } from "@/components/UserChip";
 import { apiFetch } from "@/lib/api-client";
 import type { ModuleKey } from "@/lib/constants";
 
@@ -12,6 +13,7 @@ export function AdminClient({
   statsAnonymous,
   setup,
   passphraseDbManaged,
+  pollDetails,
   onebot,
 }: {
   modules: { key: ModuleKey; label: string; enabled: boolean }[];
@@ -29,6 +31,22 @@ export function AdminClient({
       critical: boolean;
     }[];
   };
+  pollDetails: {
+    id: number;
+    question: string;
+    options: string[];
+    endsAt: string | null;
+    open: boolean;
+    tallies: number[];
+    total: number;
+    ballots: {
+      userId: number;
+      displayName: string;
+      avatarUrl?: string | null;
+      optionIndex: number;
+      optionLabel: string;
+    }[];
+  }[];
   onebot: {
     configured: boolean;
     groupId: string | null;
@@ -210,6 +228,64 @@ export function AdminClient({
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="panel rounded-2xl p-5">
+        <h2 className="text-[var(--amber)]">投票明细</h2>
+        <p className="mt-2 text-sm text-[var(--fog)]">
+          仅管理员可见：每人投了哪一项、各选项合计。
+        </p>
+        <div className="mt-4 space-y-5">
+          {pollDetails.length === 0 ? (
+            <p className="text-sm text-[var(--fog)]">暂无投票。</p>
+          ) : null}
+          {pollDetails.map((p) => (
+            <div
+              key={p.id}
+              className="rounded-xl border border-[var(--line)] p-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <h3 className="text-sm text-[var(--ink)]">{p.question}</h3>
+                <span className="text-xs text-[var(--fog)]">
+                  {p.open ? "进行中" : "已截止"}
+                  {p.endsAt ? ` · ${p.endsAt}` : ""}
+                </span>
+              </div>
+              <ul className="mt-3 space-y-1 text-sm text-[var(--fog)]">
+                {p.options.map((opt, idx) => (
+                  <li key={opt}>
+                    {opt}：
+                    <span className="text-[var(--cyan)]">
+                      {p.tallies[idx] ?? 0}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-[var(--fog)]">
+                合计 {p.total} 票
+              </p>
+              {p.ballots.length ? (
+                <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto text-xs text-[var(--fog)]">
+                  {p.ballots.map((b) => (
+                    <li
+                      key={`${p.id}-${b.userId}`}
+                      className="flex items-center gap-2"
+                    >
+                      <UserChip
+                        displayName={b.displayName}
+                        avatarUrl={b.avatarUrl}
+                        userId={b.userId}
+                      />
+                      <span>→ {b.optionLabel}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-xs text-[var(--fog)]">尚无人投票</p>
+              )}
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="panel rounded-2xl p-5">

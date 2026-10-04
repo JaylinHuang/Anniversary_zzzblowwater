@@ -13,26 +13,32 @@ export function AgentDmClient({
   groupName,
   initialSessionId,
   initialMessages,
+  initialQuota,
 }: {
   agentId: number;
   agentName: string;
   groupName: string;
   initialSessionId: number;
   initialMessages: Msg[];
+  initialQuota: { used: number; limit: number };
 }) {
   const { error: toastError, success } = useToast();
   const [sessionId, setSessionId] = useState(initialSessionId);
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [quotaLabel, setQuotaLabel] = useState("");
+  const [quota, setQuota] = useState(initialQuota);
+  const quotaLabel = `今日额度 ${quota.used}/${quota.limit}`;
+  const quotaFull = quota.used >= quota.limit;
 
   async function send(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || quotaFull) return;
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    // 乐观追加的这一句；失败时按引用精确撤回
+    const optimistic: Msg = { role: "user", content: text };
+    setMessages((prev) => [...prev, optimistic]);
     setBusy(true);
     try {
       const data = await apiFetch<{
@@ -45,13 +51,16 @@ export function AgentDmClient({
       });
       if (data.sessionId) setSessionId(data.sessionId);
       if (data.quota) {
-        setQuotaLabel(`今日额度 ${data.quota.used}/${data.quota.limit}`);
+        setQuota({ used: data.quota.used, limit: data.quota.limit });
       }
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: data.reply },
       ]);
     } catch (err) {
+      // 发送失败：撤回刚追加的那句，并把文字放回输入框方便重试
+      setMessages((prev) => prev.filter((m) => m !== optimistic));
+      setInput((cur) => cur || text);
       toastError(err instanceof Error ? err.message : "发送失败");
     } finally {
       setBusy(false);
@@ -80,7 +89,8 @@ export function AgentDmClient({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--fog)]">
         <span>
           会话 #{sessionId} · 仅你可见 · 不进「{groupName}」群归档
-          {quotaLabel ? ` · ${quotaLabel}` : ""}
+          {` · ${quotaLabel}`}
+          {quotaFull ? "（已用完，明天再来）" : ""}
         </span>
         <div className="flex gap-2">
           <Link href="/agents" className="btn btn-ghost">
@@ -124,9 +134,9 @@ export function AgentDmClient({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={`对 ${agentName} 说…`}
-          disabled={busy}
+          disabled={busy || quotaFull}
         />
-        <button className="btn" type="submit" disabled={busy}>
+        <button className="btn" type="submit" disabled={busy || quotaFull}>
           {busy ? "…" : "发送"}
         </button>
       </form>

@@ -19,7 +19,9 @@ npm run dev
 ```
 
 浏览器打开 http://localhost:3000 ，默认口令见 `.env.example` 的 `SITE_PASSPHRASE`。  
-**第一个成功建档的用户会成为 admin。**
+**第一个成功建档的用户会成为 admin。**  
+登录：群口令 + 站内昵称。  
+注册：`/gate/register` 绑定 QQ，验证码发到 `QQ号@qq.com`（`.env` 配置 `QQ_SMTP_USER` / `QQ_SMTP_PASS`）。每个 QQ 仅可建一个账号；日常登录不再发验证码。
 
 ```bash
 npm run db:seed           # 里程碑 / 题目 / 庆典公告

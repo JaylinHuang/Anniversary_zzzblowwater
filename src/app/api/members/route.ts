@@ -33,12 +33,34 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    await assertModuleEnabled("member-codex");
     const user = await requireUser();
     const body = await req.json();
+
+    let nextName: string | null = null;
+    if (typeof body.displayName === "string") {
+      nextName = body.displayName.trim().replace(/\s+/g, " ");
+      if (!nextName || nextName.length > 24) {
+        return NextResponse.json(
+          { error: "昵称长度需为 1-24" },
+          { status: 400 },
+        );
+      }
+    }
+
     await withDb((db) => {
+      if (nextName) {
+        const taken = rowFrom<{ id: number }>(
+          db,
+          `SELECT id FROM users WHERE display_name = ? COLLATE NOCASE AND id != ? LIMIT 1`,
+          [nextName, user.id],
+        );
+        if (taken) throw new Error("昵称已被占用");
+      }
+
+      // 名片字段在图鉴模块关闭时仍允许在个人中心更新
       db.run(
         `UPDATE users SET
+          display_name = COALESCE(?, display_name),
           bio = COALESCE(?, bio),
           tags = COALESCE(?, tags),
           mains = COALESCE(?, mains),
@@ -47,6 +69,7 @@ export async function PATCH(req: Request) {
           opt_out_leaderboard = COALESCE(?, opt_out_leaderboard)
          WHERE id = ?`,
         [
+          nextName,
           body.bio ?? null,
           body.tags ? JSON.stringify(body.tags) : null,
           body.mains ?? null,
@@ -70,6 +93,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: true, user: updated });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "ERROR";
-    return NextResponse.json({ error: msg }, { status: 400 });
+    const status = msg === "昵称已被占用" ? 409 : 400;
+    return NextResponse.json({ error: msg }, { status });
   }
 }

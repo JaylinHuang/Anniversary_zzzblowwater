@@ -59,7 +59,7 @@ export default async function ArchivePage({
     <div>
       <h1 className="brand-font text-3xl text-[var(--cyan)]">群聊归档</h1>
       <p className="mt-2 text-sm text-[var(--fog)]">
-        管理员导入 QQ 导出 TXT；全站已脱敏。可检索、标记金句。
+        管理员可导入 QQ TXT 或 QCE 的 xlsx；全站已脱敏。可检索、标记金句。
       </p>
       <ArchiveClient
         initialMessages={messages}

@@ -3,6 +3,8 @@
  */
 import assert from "assert";
 import { parseQqTxt, isCountableTextMessage } from "../src/lib/chat-parser";
+import { parseQceXlsx } from "../src/lib/chat-xlsx";
+import * as XLSX from "xlsx";
 import { desensitize } from "../src/lib/desensitize";
 import {
   pickBaselineRoster,
@@ -34,6 +36,14 @@ import { matchLoreFigure } from "../src/lib/lore-filter";
 import { weekdayIndex } from "../src/lib/date-key";
 import { hashPassphrase, safeEqualStr } from "../src/lib/passphrase-hash";
 import { isNavActive, PRIMARY_NAV_KEYS } from "../src/lib/nav";
+import { isPollOpen, shouldShowPollResults } from "../src/lib/poll-rules";
+import {
+  canResendAt,
+  hashQqCode,
+  isCodeExpired,
+  normalizeQq,
+  qqMailbox,
+} from "../src/lib/qq-verify";
 // checkin-rules 使用 @/ 别名；此处内联等价断言，避免 tsx 脚本路径问题
 function stampForDate(dateKey: string): string {
   const STAMPS = [
@@ -96,7 +106,30 @@ function main() {
   assert.strictEqual(messages[0].qq, "10001");
   assert.strictEqual(isCountableTextMessage("[图片]"), false);
   assert.strictEqual(isCountableTextMessage("建群啦"), true);
+  assert.strictEqual(
+    isCountableTextMessage("[图片:a.jpg] [image: a.jpg]"),
+    false,
+  );
   ok("parseQqTxt + 媒体不计票");
+
+  {
+    const aoa = [
+      ["序号", "时间", "发送者", "发送者QQ号", "消息类型", "消息内容", "是否撤回"],
+      [1, "2025-08-14T16:18:12.000Z", "甲", "10001", "文本", "建群啦", "否"],
+      [2, "2025-08-14T16:19:00.000Z", "乙", "10002", "系统消息", "加入了群聊", "否"],
+      [3, "2025-08-14T16:20:00.000Z", "甲", "10001", "文本", "撤回测试", "是"],
+      [4, "2025-08-14T16:21:00.000Z", "丙", "10003", "回复", "回一句", "否"],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "聊天记录");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    const { messages } = parseQceXlsx(buf);
+    assert.strictEqual(messages.length, 2);
+    assert.strictEqual(messages[0].qq, "10001");
+    assert.strictEqual(messages[1].content, "回一句");
+    ok("parseQceXlsx 过滤系统/撤回");
+  }
 
   const scrubbed = desensitize(messages[2].content);
   assert.ok(scrubbed.includes("[手机号]"));
@@ -341,6 +374,35 @@ function main() {
   assert.strictEqual(isNavActive("/wishes", "/games"), false);
   assert.ok(PRIMARY_NAV_KEYS.includes("wish-wall"));
   ok("导航高亮与主入口");
+
+  const d = new Date("2026-08-05T12:00:00");
+  assert.strictEqual(isPollOpen("2026-08-05", d), true);
+  assert.strictEqual(isPollOpen("2026-08-04", d), false);
+  assert.strictEqual(shouldShowPollResults("2026-08-05", false, d), false);
+  assert.strictEqual(
+    shouldShowPollResults("2026-08-04", false, d),
+    true,
+  );
+  ok("投票截止与结果可见性");
+
+  assert.strictEqual(normalizeQq(" 123456 "), "123456");
+  assert.strictEqual(normalizeQq("12ab"), null);
+  assert.strictEqual(qqMailbox("10001"), "10001@qq.com");
+  assert.notStrictEqual(hashQqCode("123456"), hashQqCode("654321"));
+  assert.strictEqual(canResendAt(null).ok, true);
+  assert.strictEqual(
+    canResendAt(new Date(Date.now() - 10_000).toISOString()).ok,
+    false,
+  );
+  assert.strictEqual(
+    canResendAt(new Date(Date.now() - 70_000).toISOString()).ok,
+    true,
+  );
+  assert.strictEqual(
+    isCodeExpired(new Date(Date.now() - 1000).toISOString()),
+    true,
+  );
+  ok("QQ 验证码规则");
 
   console.log("全部逻辑用例通过");
 }

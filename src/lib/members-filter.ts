@@ -7,6 +7,7 @@ export type MemberCard = {
   tags: string[];
   mains: string;
   badges: string[];
+  avatar_url?: string | null;
 };
 
 export function filterMembers(

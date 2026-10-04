@@ -21,6 +21,7 @@ export async function SiteHeader() {
       more={more}
       showAdmin={!!user && isAdmin(user.role)}
       displayName={user ? user.displayName : "未建档"}
+      avatarUrl={user?.avatarUrl ?? null}
     />
   );
 }

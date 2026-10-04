@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { UserChip } from "@/components/UserChip";
 import { filterMembers, type MemberCard } from "@/lib/members-filter";
 
 export function MembersBrowse({ members }: { members: MemberCard[] }) {
@@ -26,7 +27,12 @@ export function MembersBrowse({ members }: { members: MemberCard[] }) {
             href={`/members/${m.id}`}
             className="panel rounded-2xl p-5 transition hover:border-[rgba(61,224,208,0.45)]"
           >
-            <div className="text-lg">{m.display_name}</div>
+            <UserChip
+              displayName={m.display_name}
+              avatarUrl={m.avatar_url}
+              size="md"
+              className="text-base"
+            />
             <div className="mt-1 line-clamp-2 text-sm text-[var(--fog)]">
               {m.bio || "还没写介绍"}
             </div>

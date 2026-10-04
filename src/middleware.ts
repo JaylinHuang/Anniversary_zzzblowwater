@@ -4,19 +4,25 @@ import type { NextRequest } from "next/server";
 const PUBLIC = [
   "/gate",
   "/api/auth/unlock",
+  "/api/auth/login",
   "/api/auth/register",
+  "/api/auth/send-code",
+  "/api/auth/logout",
   "/api/webhooks/onebot",
   "/api/health",
 ];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", pathname);
+
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/uploads")
   ) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   const gated = req.cookies.get("zzz_gate")?.value === "1";
@@ -32,7 +38,7 @@ export function middleware(req: NextRequest) {
   }
 
   // 已过口令但仍需在 /gate 建档（无会话）时允许停留
-  return NextResponse.next();
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {

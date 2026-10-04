@@ -9,10 +9,8 @@ export async function GET(req: Request) {
     const salt = Number(url.searchParams.get("salt") || 0) || 0;
     const echo = await getMemoryEcho({ salt });
     if (!echo) {
-      return NextResponse.json(
-        { error: "暂无可用记忆，请先导入群聊归档" },
-        { status: 404 },
-      );
+      // 空结果不是错误：返回 200 + echo:null，前端据此展示「去归档」入口
+      return NextResponse.json({ echo: null });
     }
     return NextResponse.json({ echo });
   } catch (e) {

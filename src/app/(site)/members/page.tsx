@@ -16,9 +16,11 @@ export default async function MembersPage() {
     mains: string;
     badges: string;
     public_profile: number;
+    avatar_url: string | null;
   }>(
     db,
-    `SELECT id, display_name, bio, tags, mains, badges, public_profile FROM users ORDER BY id`,
+    `SELECT id, display_name, bio, tags, mains, badges, public_profile, avatar_url
+     FROM users ORDER BY id`,
   )
     .filter(
       (m) => m.public_profile || m.id === me?.id || me?.role === "admin",
@@ -30,6 +32,7 @@ export default async function MembersPage() {
       tags: JSON.parse(m.tags || "[]") as string[],
       mains: m.mains,
       badges: JSON.parse(m.badges || "[]") as string[],
+      avatar_url: m.avatar_url,
     }));
 
   return (

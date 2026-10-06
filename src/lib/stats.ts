@@ -67,7 +67,12 @@ export async function computeFunStats(anonymous: boolean) {
     [...nameParams, ...nameParams, ...likeParams],
   ).map((t) => t.content);
 
-  const words = await cleanWordCloud(texts, GROUP_NAME, 40, [...BOT_GROUP_NAMES]);
+  // 群名的中文片段和英文写法都不进词云。blowwater 是同一个群的英文名
+  const words = await cleanWordCloud(texts, GROUP_NAME, 40, [
+    ...BOT_GROUP_NAMES,
+    "blowwater",
+    "zzzblowwater",
+  ]);
 
   const total = Number(
     rowFrom<{ c: number }>(

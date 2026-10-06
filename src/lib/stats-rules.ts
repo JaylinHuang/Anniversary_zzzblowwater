@@ -26,7 +26,7 @@ export function fillHourBuckets(
   });
 }
 
-/** 中文双字词频（过滤过短与占位） */
+/** 旧的双字滑动窗口。词云已改走 wordcloud-rules，这里只留给对照测试 */
 export function chineseBigramFreq(
   texts: string[],
   topN = 40,

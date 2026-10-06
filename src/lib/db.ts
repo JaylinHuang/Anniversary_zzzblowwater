@@ -93,6 +93,15 @@ function migrate(db: Database) {
       FOREIGN KEY(batch_id) REFERENCES import_batches(id)
     );
 
+    CREATE TABLE IF NOT EXISTS live_inbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_msg_id TEXT,
+      payload_json TEXT NOT NULL,
+      received_at TEXT DEFAULT (datetime('now')),
+      flushed_at TEXT,
+      batch_id INTEGER
+    );
+
     CREATE TABLE IF NOT EXISTS wishes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -301,6 +310,30 @@ function migrate(db: Database) {
       FOREIGN KEY(session_id) REFERENCES agent_dm_sessions(id)
     );
 
+    -- 同一个群友分身的共享记忆：不按聊天对象拆开，只记下是在跟谁说话时写下的
+    CREATE TABLE IF NOT EXISTS agent_shared_memory (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id INTEGER NOT NULL,
+      fact TEXT NOT NULL,
+      source_user_id INTEGER,
+      source_name TEXT DEFAULT '',
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- 一轮提问的任务仓库：调度和子任务读写同一份，角色在一轮里不能重复
+    CREATE TABLE IF NOT EXISTS agent_task_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      turn_id TEXT NOT NULL,
+      agent_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      output TEXT DEFAULT '',
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(turn_id, role)
+    );
+
     CREATE TABLE IF NOT EXISTS daily_checkins (
       user_id INTEGER NOT NULL,
       checkin_date TEXT NOT NULL,
@@ -342,6 +375,14 @@ function migrate(db: Database) {
   } catch {
     /* ignore */
   }
+  try {
+    db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_live_inbox_msg
+       ON live_inbox(source_msg_id)`,
+    );
+  } catch {
+    /* 旧数据若有重复消息号，去重索引建不上也不挡启动 */
+  }
 
   // 默认模块开关
   const modules = [
@@ -353,7 +394,6 @@ function migrate(db: Database) {
     "party-games",
     "events-hub",
     "media-gallery",
-    "lore-constellation",
     "member-agents",
   ];
   for (const key of modules) {
@@ -362,6 +402,10 @@ function migrate(db: Database) {
       [key],
     );
   }
+  // 人物星图已下线，旧库里的开关一并关掉
+  db.run(
+    `UPDATE feature_flags SET enabled = 0 WHERE module_key = 'lore-constellation'`,
+  );
 
   // 默认公开统计开启
   db.run(

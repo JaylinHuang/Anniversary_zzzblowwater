@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PageStage } from "@/components/fx/PageStage";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 import type { Role } from "@/lib/constants";
 import { getCheckinStatus } from "@/lib/checkin";
@@ -110,11 +111,13 @@ export default async function MePage() {
   ];
 
   return (
-    <div className="space-y-8">
-      <div>
-        <p className="text-xs tracking-[0.28em] text-[var(--amber)]">PROFILE</p>
-        <h1 className="brand-font mt-2 text-3xl text-[var(--cyan)]">个人中心</h1>
-      </div>
+    <PageStage
+      code="HDD-00"
+      channel="PROFILE"
+      title="个人中心"
+      lede={row.bio || "还没有自我介绍，在下方编辑名片补上吧。"}
+    >
+      <div className="space-y-6">
 
       {/* 身份卡 */}
       <section className="panel relative overflow-hidden rounded-2xl p-6 md:p-8">
@@ -210,7 +213,7 @@ export default async function MePage() {
 
       {/* 数据看板 */}
       <section>
-        <h3 className="text-sm text-[var(--amber)]">我的足迹</h3>
+        <h2 className="stage-sec">我的足迹</h2>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {stats.map((s) => (
             <div
@@ -231,7 +234,7 @@ export default async function MePage() {
 
       {/* 近七日签到印章 */}
       <section className="panel rounded-2xl p-5">
-        <h3 className="text-sm text-[var(--amber)]">最近签到</h3>
+        <h2 className="stage-sec">最近签到</h2>
         {checkin.recent.length ? (
           <ul className="mt-4 flex flex-wrap gap-2">
             {checkin.recent.map((r) => (
@@ -253,7 +256,7 @@ export default async function MePage() {
 
       {/* 投票记录 */}
       <section className="panel rounded-2xl p-5">
-        <h3 className="text-sm text-[var(--amber)]">我的投票</h3>
+        <h2 className="stage-sec">我的投票</h2>
         {pollVotes.length ? (
           <ul className="mt-3 space-y-2 text-sm">
             {pollVotes.map((v) => (
@@ -281,6 +284,7 @@ export default async function MePage() {
           optOutLeaderboard: !!row.opt_out_leaderboard,
         }}
       />
-    </div>
+      </div>
+    </PageStage>
   );
 }

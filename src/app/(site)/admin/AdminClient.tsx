@@ -51,6 +51,8 @@ export function AdminClient({
     configured: boolean;
     groupId: string | null;
     webhookUrl: string;
+    pending: number;
+    lastFlushAt: string | null;
     batch: {
       id: number;
       messageCount: number;
@@ -123,7 +125,7 @@ export function AdminClient({
   return (
     <div className="mt-6 space-y-6">
       <section className="panel rounded-2xl p-5">
-        <h2 className="text-[var(--amber)]">整站口令</h2>
+        <h2 className="stage-sec">整站口令</h2>
         <p className="mt-2 text-sm text-[var(--fog)]">
           仅管理员可修改。普通成员看不到此入口。
           {passphraseDbManaged
@@ -169,7 +171,7 @@ export function AdminClient({
       </section>
 
       <section className="panel rounded-2xl p-5">
-        <h2 className="text-[var(--amber)]">
+        <h2 className="stage-sec">
           开箱清单 · {setup.groupName}
           <span className="ml-2 text-sm text-[var(--cyan)]">
             就绪 {setup.readyScore}%
@@ -203,7 +205,7 @@ export function AdminClient({
       </section>
 
       <section className="panel rounded-2xl p-5">
-        <h2 className="text-[var(--amber)]">数据备份</h2>
+        <h2 className="stage-sec">数据备份</h2>
         <p className="mt-2 text-sm text-[var(--fog)]">
           导出模块开关、里程碑、Agent 名册元数据与金句（不含会话令牌与口令）。
         </p>
@@ -213,7 +215,7 @@ export function AdminClient({
       </section>
 
       <section className="panel rounded-2xl p-5">
-        <h2 className="text-[var(--amber)]">模块开关</h2>
+        <h2 className="stage-sec">模块开关</h2>
         <ul className="mt-4 space-y-3">
           {modules.map((m) => (
             <li key={m.key} className="flex items-center justify-between text-sm">
@@ -231,7 +233,7 @@ export function AdminClient({
       </section>
 
       <section className="panel rounded-2xl p-5">
-        <h2 className="text-[var(--amber)]">投票明细</h2>
+        <h2 className="stage-sec">投票明细</h2>
         <p className="mt-2 text-sm text-[var(--fog)]">
           仅管理员可见：每人投了哪一项、各选项合计。
         </p>
@@ -289,7 +291,7 @@ export function AdminClient({
       </section>
 
       <section className="panel rounded-2xl p-5">
-        <h2 className="text-[var(--amber)]">趣味统计</h2>
+        <h2 className="stage-sec">趣味统计</h2>
         <div className="mt-4 flex flex-wrap gap-3">
           <button
             className="btn"
@@ -309,13 +311,19 @@ export function AdminClient({
       </section>
 
       <section className="panel rounded-2xl p-5">
-        <h2 className="text-[var(--amber)]">方案 B · OneBot / NapCat 实时同步</h2>
+        <h2 className="stage-sec">群消息 · 实时收取，凌晨灌库</h2>
         <p className="mt-2 text-sm text-[var(--fog)]">
           状态：
           <span className={onebot.configured ? "text-[var(--cyan)]" : "text-[var(--danger)]"}>
             {onebot.configured ? "已配置令牌" : "未配置 ONEBOT_ACCESS_TOKEN"}
           </span>
           {onebot.groupId ? ` · 限定群 ${onebot.groupId}` : " · 未限定群号"}
+        </p>
+        <p className="mt-3 text-sm text-[var(--ink)]">
+          收件箱待灌入 {onebot.pending} 条
+          {onebot.lastFlushAt
+            ? ` · 上次灌库 ${onebot.lastFlushAt.replace("T", " ").slice(0, 16)}`
+            : " · 还没灌过库"}
         </p>
         <p className="mt-3 break-all text-sm">
           Webhook URL：
@@ -326,23 +334,19 @@ export function AdminClient({
             在 <code>.env</code> 设置 <code>ONEBOT_ACCESS_TOKEN</code> 与{" "}
             <code>ONEBOT_GROUP_ID</code>，重启服务
           </li>
-          <li>部署 NapCat / 其他 OneBot 实现，登录用于挂机的 QQ</li>
+          <li>用 NapCat 登录一个已在群里的 QQ，打开 OneBot 11 的 HTTP 上报</li>
           <li>
-            HTTP 上报地址填上面的 URL；鉴权使用{" "}
+            上报地址填上面的 URL，令牌用{" "}
             <code>Authorization: Bearer &lt;令牌&gt;</code>
           </li>
-          <li>群内发一条测试消息，再到「群聊归档」查看是否出现</li>
+          <li>消息先脱敏收成 JSON，停在收件箱，不立刻进归档和统计</li>
+          <li>每天北京时间 04:00 灌进群聊归档，并刷新已绑定 Agent 的条数和向量。趣味统计下次打开就会用上新消息</li>
         </ol>
         {onebot.batch ? (
-          <p className="mt-4 text-sm text-[var(--ink)]">
-            实时批次 #{onebot.batch.id} · 已同步 {onebot.batch.messageCount} 条 ·{" "}
-            {onebot.batch.timeStart || "?"} ~ {onebot.batch.timeEnd || "?"}
-          </p>
-        ) : (
           <p className="mt-4 text-sm text-[var(--fog)]">
-            尚未收到机器人消息（收到后会自动创建 onebot-live 批次）。
+            旧的实时批次 #{onebot.batch.id} 还在归档里，共 {onebot.batch.messageCount} 条。新消息改走每天凌晨的批次。
           </p>
-        )}
+        ) : null}
       </section>
     </div>
   );

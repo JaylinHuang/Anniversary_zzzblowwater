@@ -31,14 +31,14 @@ export default async function SiteLayout({
       <SiteHeader />
       {/* 站点底层浮尘：fixed z=0，正文与页脚抬到 z=1 压在上面，粒子只在底下飘 */}
       <NightDust scope="page" />
-      <main className="relative z-[1] mx-auto min-h-[calc(100vh-4rem)] max-w-6xl px-4 py-6">
+      <main className="relative z-[1] mx-auto min-h-[calc(100vh-4rem)] max-w-7xl px-4 py-6">
         {children}
       </main>
 
       {/* 页脚：街牌式一行 */}
       <footer className="relative z-[1] mt-10 border-t border-[var(--line)]">
         <div className="hazard-cyan h-[3px] opacity-60" />
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-5 text-xs text-[var(--fog)]">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-5 text-xs text-[var(--fog)]">
           <div className="flex items-center gap-3">
             <span className="sticker sticker-ink">{SITE_BRAND}</span>
             <span className="mono tracking-[0.15em]">{GROUP_NAME} · 非官方社区站</span>

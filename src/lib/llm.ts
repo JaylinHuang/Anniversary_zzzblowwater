@@ -1,3 +1,5 @@
+import { LOCAL_EMBED_MODEL, localEmbed } from "@/lib/local-embed";
+
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -50,17 +52,56 @@ export function getEmbeddingConfig(): EmbeddingConfig | null {
 }
 
 export function isEmbeddingConfigured() {
-  return getEmbeddingConfig() !== null;
+  return true;
 }
 
-/** 批量向量化；单次请求最多 64 条 */
-export async function embedTexts(texts: string[]): Promise<number[][]> {
-  const cfg = getEmbeddingConfig();
-  if (!cfg) throw new Error("EMBEDDING_NOT_CONFIGURED");
-  if (!texts.length) return [];
+export type EmbedBackend = { model: string; local: boolean };
 
+let resolvedBackend: EmbedBackend | null = null;
+
+function localBackend(): EmbedBackend {
+  return { model: LOCAL_EMBED_MODEL, local: true };
+}
+
+/** 云端业务空间拒绝密钥时，改用本地字面向量，避免索引按钮直接失败 */
+export async function resolveEmbedBackend(): Promise<EmbedBackend> {
+  if (resolvedBackend) return resolvedBackend;
+  const cfg = getEmbeddingConfig();
+  if (!cfg) {
+    resolvedBackend = localBackend();
+    return resolvedBackend;
+  }
+  try {
+    await embedRemote(cfg, ["通"]);
+    resolvedBackend = { model: cfg.model, local: false };
+  } catch (err) {
+    if (!isEmbedAccessError(err)) throw err;
+    resolvedBackend = localBackend();
+  }
+  return resolvedBackend;
+}
+
+function isEmbedAccessError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : "";
+  return msg.includes("拒绝访问") || msg.includes("鉴权失败") || msg.includes("地址不对");
+}
+
+/** 批量向量化。百炼这个兼容接口单批最多 10 条，本地则逐条哈希 */
+export async function embedTexts(texts: string[]): Promise<number[][]> {
+  if (!texts.length) return [];
+  const backend = await resolveEmbedBackend();
+  if (backend.local) return texts.map((text) => localEmbed(text));
+  const cfg = getEmbeddingConfig();
+  if (!cfg) return texts.map((text) => localEmbed(text));
+  return embedRemote(cfg, texts);
+}
+
+async function embedRemote(
+  cfg: EmbeddingConfig,
+  texts: string[],
+): Promise<number[][]> {
   const out: number[][] = [];
-  const batchSize = 64;
+  const batchSize = 10;
   for (let i = 0; i < texts.length; i += batchSize) {
     const batch = texts.slice(i, i + batchSize).map((t) => t.slice(0, 2000));
     const res = await fetch(`${cfg.baseUrl}/embeddings`, {
@@ -76,7 +117,7 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`EMBEDDING_HTTP_${res.status}: ${text.slice(0, 300)}`);
+      throw new Error(explainEmbeddingHttpError(res.status, text));
     }
     const data = (await res.json()) as {
       data?: Array<{ embedding?: number[]; index?: number }>;
@@ -93,6 +134,32 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
     }
   }
   return out;
+}
+
+/** 把向量接口的 HTTP 错误收成可直接展示的中文，避免把原始 JSON 抛到页面上 */
+function explainEmbeddingHttpError(status: number, body: string): string {
+  const snippet = body.slice(0, 300);
+  if (
+    status === 403 &&
+    /access_denied|Workspace endpoint access denied/i.test(snippet)
+  ) {
+    return "向量接口拒绝访问：当前密钥不能调用这个业务空间。请换成该空间自己的 API Key，或把 EMBEDDING_API_BASE 改成该密钥所属空间的地址（需以 /compatible-mode/v1 结尾），然后重启服务再重建索引。";
+  }
+  if (status === 401 || status === 403) {
+    return "向量接口鉴权失败。请检查 EMBEDDING_API_KEY 是否属于 EMBEDDING_API_BASE 对应的业务空间。";
+  }
+  if (status === 404) {
+    return "向量接口地址不对（404）。EMBEDDING_API_BASE 需要是 OpenAI 兼容根路径，例如以 /compatible-mode/v1 结尾，程序会自行请求 /embeddings。";
+  }
+  let detail = "";
+  try {
+    const data = JSON.parse(body) as { error?: { message?: string }; message?: string };
+    detail = data.error?.message || data.message || "";
+  } catch {
+    detail = "";
+  }
+  const brief = detail.replace(/\s+/g, " ").slice(0, 120);
+  return `向量接口返回 ${status}${brief ? `：${brief}` : ""}，索引未建立。`;
 }
 
 /** OpenAI 兼容 Chat Completions（DeepSeek / 月之暗面 / 通义等均可） */

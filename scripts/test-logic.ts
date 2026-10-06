@@ -2,22 +2,49 @@
  * 无服务端依赖的逻辑自测：解析 / 脱敏 / 名册规则 / 金句索引 / 连签
  */
 import assert from "assert";
-import { parseQqTxt, isCountableTextMessage } from "../src/lib/chat-parser";
+import {
+  parseQqTxt,
+  isAgentCorpusText,
+  isCountableTextMessage,
+} from "../src/lib/chat-parser";
 import { parseQceXlsx } from "../src/lib/chat-xlsx";
+import { archiveFromQceExporter, parseArchiveJson } from "../src/lib/chat-json";
+import { localEmbed } from "../src/lib/local-embed";
+import { pickPersonaSamples } from "../src/lib/roster";
+import { rerankHits } from "../src/lib/rag-rerank";
+import { replyTemperature, AGENT_HARD_RULES, formatSpeakerIdentity, sameQq, correctSelfReply } from "../src/lib/agent-crew";
+import { formatSpeakStyle, summarizeSpeakStyle } from "../src/lib/speak-stats";
 import * as XLSX from "xlsx";
 import { desensitize } from "../src/lib/desensitize";
+import {
+  archiveJsonFromInbox,
+  cleanOneBotToJson,
+  flushIsDue,
+  parseInboxJson,
+  shanghaiDayKey,
+} from "../src/lib/live-inbox";
 import {
   pickBaselineRoster,
   qualifiesForAdmission,
   selectAdmissions,
 } from "../src/lib/roster-rules";
+import { arbitrateResults } from "../src/lib/agent-arbitrate";
+import {
+  alignReplyWithFacts,
+  assertDisjointPlan,
+  buildCrewPlan,
+  defaultCrewPlan,
+} from "../src/lib/agent-crew";
 import { daySeed, pickIndex } from "../src/lib/date-key";
 import { buildGuessRound, gradeGuess } from "../src/lib/guess-speaker";
 import {
   chineseBigramFreq,
+  fillHourBuckets,
   isNightOwlHour,
   nightOwlRatio,
 } from "../src/lib/stats-rules";
+import { cleanWordCloud } from "../src/lib/wordcloud-clean";
+import { isBotChat } from "../src/lib/bot-chat";
 import {
   extractPlainText,
   formatSender,
@@ -32,7 +59,6 @@ import {
   isCapsuleUnlocked,
 } from "../src/lib/capsule-rules";
 import { filterGallery, parseTags } from "../src/lib/gallery-filter";
-import { matchLoreFigure } from "../src/lib/lore-filter";
 import { weekdayIndex } from "../src/lib/date-key";
 import { hashPassphrase, safeEqualStr } from "../src/lib/passphrase-hash";
 import { isNavActive, PRIMARY_NAV_KEYS } from "../src/lib/nav";
@@ -90,7 +116,7 @@ function ok(name: string) {
   console.log(`  ✓ ${name}`);
 }
 
-function main() {
+async function main() {
   console.log("== test-logic ==");
 
   const sample = `
@@ -112,6 +138,101 @@ function main() {
   );
   ok("parseQqTxt + 媒体不计票");
 
+  assert.strictEqual(isAgentCorpusText("哈哈哈哈哈"), false);
+  assert.strictEqual(isAgentCorpusText("666"), false);
+  assert.strictEqual(isAgentCorpusText("好的"), false);
+  assert.strictEqual(isAgentCorpusText("https://example.com/a"), false);
+  assert.strictEqual(isAgentCorpusText("[图片:a.jpg]"), false);
+  assert.strictEqual(isAgentCorpusText("撤回了一条消息"), false);
+  assert.strictEqual(isAgentCorpusText("今晚深渊还缺一个输出"), true);
+  assert.strictEqual(isAgentCorpusText("@伊蕾娜 今日老婆"), false);
+  assert.strictEqual(isAgentCorpusText("诺艾尔 今日运势"), false);
+  assert.strictEqual(isAgentCorpusText("小呱呱点歌"), false);
+  assert.strictEqual(isAgentCorpusText("哈哈 这期音擎也太亏了"), true);
+  ok("人设输入过滤掉附和和笑声");
+
+  {
+    const lines = Array.from({ length: 100 }, (_, i) => `第${i}句`);
+    const picked = pickPersonaSamples(lines, 10);
+    assert.strictEqual(picked.length, 10);
+    assert.strictEqual(picked[0], "第0句");
+    assert.strictEqual(picked[picked.length - 1], "第99句");
+    const same = localEmbed("这期音擎太亏了");
+    const near = localEmbed("音擎也太亏了");
+    const far = localEmbed("明天中午吃什么");
+    const dot = (a: number[], b: number[]) =>
+      a.reduce((sum, v, i) => sum + v * b[i], 0);
+    assert.ok(dot(same, same) > 0.99);
+    assert.ok(dot(same, near) > dot(same, far));
+    ok("人设按时间抽样，本地向量能分开不同话题");
+  }
+
+  {
+    const ranked = rerankHits(
+      "今晚去深渊吗",
+      [
+        {
+          messageId: 1,
+          content: "今晚去深渊",
+          sentAt: "2026-08-01 20:00:00",
+          vectorScore: 0.9,
+        },
+        {
+          messageId: 2,
+          content: "今晚不去深渊",
+          sentAt: "2026-10-01 20:00:00",
+          vectorScore: 0.9,
+        },
+        {
+          messageId: 3,
+          content: "今晚去深渊",
+          sentAt: "2026-09-01 20:00:00",
+          vectorScore: 0.88,
+        },
+        {
+          messageId: 4,
+          content: "哈哈哈哈哈",
+          sentAt: "2026-10-02 20:00:00",
+          vectorScore: 0.99,
+        },
+        {
+          messageId: 5,
+          content: "明天中午吃面条",
+          sentAt: "2026-10-02 21:00:00",
+          vectorScore: 0.05,
+        },
+      ],
+      4,
+    );
+    assert.deepStrictEqual(
+      ranked.map((hit) => hit.messageId),
+      [2],
+    );
+    assert.strictEqual(replyTemperature("今晚有票吗"), 0.55);
+    assert.strictEqual(replyTemperature("查一下打了多少次"), 0.55);
+    assert.ok(replyTemperature("今晚有票吗") < replyTemperature("来句闲聊"));
+    assert.ok(replyTemperature("来句闲聊") > 0.55);
+    assert.ok(AGENT_HARD_RULES.includes("一个字都不要补"));
+    const clipped = summarizeSpeakStyle(["嗯", "好", "在吗", "哈哈", "行", "睡了", "到了", "？"]);
+    assert.ok(clipped);
+    assert.ok(clipped!.avgLen < 10);
+    assert.ok(formatSpeakStyle(clipped!).includes("说话节奏"));
+    assert.strictEqual(summarizeSpeakStyle(["只有一句"]), null);
+    const identity = formatSpeakerIdentity("sr.11", ["sr.11"], {
+      self: true,
+      agentName: "厂夏",
+    });
+    assert.ok(identity.includes("就是你本人"));
+    assert.ok(identity.includes("这张卡叫「厂夏」"));
+    assert.ok(identity.includes("你就是我"));
+    assert.strictEqual(sameQq(10001, "10001"), true);
+    assert.strictEqual(
+      correctSelfReply("知道啊，sr.11嘛，群里那个", "sr.11", "厂夏"),
+      "你就是我。群名片是sr.11，这张卡叫厂夏。",
+    );
+    ok("混合检索丢掉重复、无效和互相矛盾的旧说法");
+  }
+
   {
     const aoa = [
       ["序号", "时间", "发送者", "发送者QQ号", "消息类型", "消息内容", "是否撤回"],
@@ -129,6 +250,69 @@ function main() {
     assert.strictEqual(messages[0].qq, "10001");
     assert.strictEqual(messages[1].content, "回一句");
     ok("parseQceXlsx 过滤系统/撤回");
+  }
+
+  {
+    const exporter = JSON.stringify({
+      metadata: { name: "QQChatExporter" },
+      chatInfo: { name: "测试群", peerUid: "869747866" },
+      messages: [
+        {
+          time: "2026-08-03T16:00:02.000Z",
+          type: "text",
+          recalled: false,
+          sender: { uin: "10001", name: "甲", groupCard: "群名片" },
+          content: { text: "建群啦" },
+        },
+        {
+          time: "2026-08-03T16:01:00.000Z",
+          type: "system",
+          recalled: false,
+          sender: { uin: "10002", name: "乙" },
+          content: { text: "加入了" },
+        },
+        {
+          time: "2026-08-03T16:02:00.000Z",
+          type: "text",
+          recalled: true,
+          sender: { uin: "10001", name: "甲" },
+          content: { text: "撤回" },
+        },
+        {
+          time: "2026-08-03T16:03:00.000Z",
+          type: "reply",
+          recalled: false,
+          sender: { uin: "10003", name: "10003", groupCard: "" },
+          content: {
+            text: "",
+            elements: [{ type: "text", data: { text: "回一句" } }],
+          },
+        },
+      ],
+    });
+    const { doc } = archiveFromQceExporter(exporter, { sourceFile: "a.json" });
+    assert.strictEqual(doc.messages.length, 2);
+    assert.strictEqual(doc.messages[0].sender, "群名片");
+    assert.strictEqual(doc.messages[0].qq, "10001");
+    assert.strictEqual(doc.messages[0].sentAt, "2026-08-04 00:00:02");
+    assert.strictEqual(doc.messages[1].content, "回一句");
+    assert.strictEqual(doc.groupId, "869747866");
+    const parsed = parseArchiveJson(JSON.stringify(doc));
+    assert.strictEqual(parsed.messages.length, 2);
+    assert.throws(() => parseArchiveJson(exporter));
+    const withBlank = parseArchiveJson(
+      JSON.stringify({
+        format: "zzz-archive",
+        version: 1,
+        messages: [
+          { sender: "甲", qq: "10001", sentAt: "2025-08-14 16:18:12", content: "建群啦" },
+          { sender: "乙", qq: "10002", sentAt: "2025-08-14 16:19:00", content: "   " },
+        ],
+      }),
+    );
+    assert.strictEqual(withBlank.messages.length, 1);
+    assert.ok(withBlank.errors.some((e) => e.includes("空正文")));
+    ok("zzz-archive JSON 过滤并拒绝原始导出");
   }
 
   const scrubbed = desensitize(messages[2].content);
@@ -200,6 +384,54 @@ function main() {
   assert.strictEqual(40 >= 40, true);
   ok("DM 日限额边界");
 
+  const plan = defaultCrewPlan();
+  assert.strictEqual(new Set(plan.map((task) => task.role)).size, plan.length);
+  assert.strictEqual(assertDisjointPlan(plan).length, 4);
+  const split = buildCrewPlan("铃觉得音擎怎么样？哲觉得呢", "铃", [
+    { id: 2, name: "哲", qq: "10002" },
+  ]);
+  assert.ok(split.some((task) => task.role === "consult:2"));
+  assert.throws(() =>
+    assertDisjointPlan([
+      ...defaultCrewPlan(),
+      { role: "voice", scope: "再答一次" },
+    ]),
+  );
+  assert.strictEqual(
+    alignReplyWithFacts("", ["深渊今晚缺输出"]),
+    "我确认过的是：深渊今晚缺输出",
+  );
+  ok("调度任务不重叠，空草稿回落到共享事实");
+
+  const chatWins = arbitrateResults({
+    userText: "今晚还去深渊吗",
+    chatText: "今晚不去深渊",
+    memoryText: "今晚去深渊",
+    consultText: "",
+    draft: "今晚去深渊",
+  });
+  assert.ok(chatWins.conflicts.length > 0);
+  assert.ok(chatWins.reply.includes("今晚不去深渊"));
+  assert.ok(!chatWins.reply.includes("今晚去深渊"));
+  const neither = arbitrateResults({
+    userText: "今晚有票吗",
+    chatText: "",
+    memoryText: "有票",
+    consultText: "没有票",
+    draft: "有票",
+  });
+  assert.ok(neither.conflicts.some((item) => item.winnerSource === "none"));
+  assert.ok(!neither.reply.includes("有票"));
+  const userWins = arbitrateResults({
+    userText: "我今晚不去深渊",
+    chatText: "",
+    memoryText: "今晚去深渊",
+    consultText: "",
+    draft: "今晚去深渊",
+  });
+  assert.ok(userWins.reply.includes("今晚不去深渊"));
+  ok("冲突时群聊优先，其次用户原话");
+
   const guess = buildGuessRound(
     [
       { id: 1, sender: "甲", content: "今天建群啦冲冲冲" },
@@ -233,8 +465,56 @@ function main() {
   assert.strictEqual(isNightOwlHour(2), true);
   assert.strictEqual(isNightOwlHour(12), false);
   assert.strictEqual(nightOwlRatio(25, 100), 25);
+  const filled = fillHourBuckets([
+    { hour: "0", count: 3 },
+    { hour: "23", count: 9 },
+  ]);
+  assert.strictEqual(filled.length, 24);
+  assert.strictEqual(filled[0].count, 3);
+  assert.strictEqual(filled[12].count, 0);
+  assert.strictEqual(filled[23].hour, "23");
+  assert.deepStrictEqual(fillHourBuckets([]), []);
   const grams = chineseBigramFreq(["今天建群啦", "建群冲冲冲"], 5);
   assert.ok(grams.some((g) => g.word === "建群"));
+  const cleaned = await cleanWordCloud(
+    [
+      "在zzz吹水群里说天青色的誓约",
+      "格莉丝下雪了",
+      "哈哈哈哈一个这个就是没有",
+      "我想睡醒了",
+      "时候到了",
+      "中午操了卧室操吃饭操时候操",
+      "去操场看看",
+      "今天打了boss和Boss",
+    ],
+    "zzz吹水群",
+    20,
+  );
+  const cleanedWords = cleaned.map((item) => item.word);
+  for (const word of ["天青色", "誓约", "格莉丝", "下雪", "睡醒", "中午", "卧室", "吃饭", "操场", "boss"]) {
+    assert.ok(cleanedWords.includes(word), word);
+  }
+  for (const word of ["吹水", "水群", "天青", "青色", "格莉", "莉丝", "时候", "哈哈", "zzz", "the"]) {
+    assert.ok(!cleanedWords.includes(word), word);
+  }
+  assert.ok(cleanedWords.every((word) => !word.endsWith("操") || word === "操场"));
+  const bots = new Set(["10001"]);
+  assert.strictEqual(
+    isBotChat({ sender: "伊蕾娜", content: "今日老婆" }, bots),
+    true,
+  );
+  assert.strictEqual(
+    isBotChat({ sender: "甲", qq: "10001", content: "在吗" }, bots),
+    true,
+  );
+  assert.strictEqual(
+    isBotChat({ sender: "甲", content: "@伊雷娜 点歌" }, bots),
+    true,
+  );
+  assert.strictEqual(
+    isBotChat({ sender: "甲", content: "天青色的誓约" }, bots),
+    false,
+  );
   ok("深夜指数与双字词频");
 
   const plain = extractPlainText({
@@ -340,22 +620,6 @@ function main() {
   );
   ok("Meme 馆筛选");
 
-  assert.strictEqual(
-    matchLoreFigure(
-      { id: 1, name: "绳匠甲", epithet: "建群人", summary: "起源" },
-      "建群",
-    ),
-    true,
-  );
-  assert.strictEqual(
-    matchLoreFigure(
-      { id: 1, name: "绳匠甲", epithet: "建群人", summary: "起源" },
-      "电波",
-    ),
-    false,
-  );
-  ok("星图人物检索");
-
   // 2026-07-17 是周五 → getDay()=5
   assert.strictEqual(weekdayIndex("2026-07-17"), 5);
   assert.strictEqual(weekdayIndex("2026-07-12"), 0);
@@ -369,6 +633,51 @@ function main() {
   assert.strictEqual(safeEqualStr("same", "same"), true);
   assert.strictEqual(safeEqualStr("a", "b"), false);
   ok("口令哈希");
+
+  const beforeFour = new Date("2026-10-05T19:59:00Z");
+  const atFour = new Date("2026-10-05T20:00:00Z");
+  const nextFour = new Date("2026-10-06T20:00:00Z");
+  assert.strictEqual(flushIsDue(beforeFour, null), false);
+  assert.strictEqual(flushIsDue(atFour, null), true);
+  assert.strictEqual(flushIsDue(atFour, atFour.toISOString()), false);
+  assert.strictEqual(flushIsDue(nextFour, atFour.toISOString()), true);
+  assert.strictEqual(shanghaiDayKey(atFour), "2026-10-06");
+  const inboxCleaned = cleanOneBotToJson(
+    {
+      post_type: "message",
+      message_type: "group",
+      group_id: "869747866",
+      user_id: "10001",
+      message_id: "55",
+      time: Math.floor(atFour.getTime() / 1000),
+      sender: { card: "绳匠" },
+      message: "晚上见 13800138000",
+    },
+    "869747866",
+  );
+  assert.ok(!("skip" in inboxCleaned));
+  if (!("skip" in inboxCleaned)) {
+    assert.match(inboxCleaned.json, /\[手机号\]/);
+    assert.strictEqual(parseInboxJson(inboxCleaned.json)?.sourceMsgId, "55");
+    assert.strictEqual(parseInboxJson(inboxCleaned.json)?.sentAt?.slice(0, 13), "2026-10-06 04");
+    const archive = archiveJsonFromInbox([inboxCleaned.payload], {
+      groupName: "zzz吹水群",
+      groupId: "869747866",
+      sourceFile: "onebot-daily-2026-10-06.json",
+    });
+    const back = parseArchiveJson(archive);
+    assert.strictEqual(back.messages.length, 1);
+    assert.strictEqual(back.messages[0]?.content.includes("13800138000"), false);
+  }
+  assert.strictEqual(
+    "skip" in cleanOneBotToJson({ post_type: "message", message_type: "group", group_id: "1", message: "hi" }, "869747866"),
+    true,
+  );
+  assert.strictEqual(
+    "skip" in cleanOneBotToJson({ post_type: "message", message_type: "private", message: "hi" }, null),
+    true,
+  );
+  ok("凌晨灌库与消息清洗");
 
   assert.strictEqual(isNavActive("/agents/3", "/agents"), true);
   assert.strictEqual(isNavActive("/wishes", "/games"), false);
@@ -407,4 +716,7 @@ function main() {
   console.log("全部逻辑用例通过");
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

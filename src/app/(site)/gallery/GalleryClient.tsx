@@ -219,6 +219,8 @@ export function GalleryClient({
 
   return (
     <div className="mt-6 space-y-8">
+      <section>
+        <h2 className="stage-sec">上传</h2>
       <form
         onSubmit={upload}
         className="panel grid gap-3 rounded-2xl p-5 md:grid-cols-3"
@@ -243,7 +245,7 @@ export function GalleryClient({
 
       {canModerate && pending.length ? (
         <section>
-          <h2 className="text-[var(--amber)]">待审核</h2>
+          <h2 className="stage-sec">待审核</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
             {pending.map((p) => (
               <div key={p.id} className="panel rounded-xl p-3">
@@ -265,8 +267,10 @@ export function GalleryClient({
           </div>
         </section>
       ) : null}
+      </section>
 
-      <div>
+      <section>
+        <h2 className="stage-sec">筛选</h2>
         <input
           className="input max-w-md"
           placeholder="按标题 / 上传者 / 标签筛选…"
@@ -276,7 +280,7 @@ export function GalleryClient({
         <p className="mt-2 text-xs text-[var(--fog)]">
           显示 {filtered.length} / {cards.length}
         </p>
-      </div>
+      </section>
 
       {emptyState === "gallery-empty" ? (
         <div className="panel rounded-2xl p-8 text-center text-sm text-[var(--fog)]">
@@ -298,7 +302,8 @@ export function GalleryClient({
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <h2 className="stage-sec">馆藏</h2>
+      <div className="meme-board">
         {filtered.map((item) => (
           <article key={item.id} className="panel overflow-hidden rounded-2xl">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -335,7 +340,7 @@ export function GalleryClient({
                 type="button"
                 aria-pressed={item.liked}
                 disabled={Boolean(likeBusy[item.id])}
-                onClick={() => toggleLike(item.id, item.liked, item.likes)}
+                onClick={() => toggleLike(item.id, Boolean(item.liked), item.likes)}
               >
                 {item.liked ? "♥ 已赞" : "♡ 赞"} · {item.likes}
               </button>

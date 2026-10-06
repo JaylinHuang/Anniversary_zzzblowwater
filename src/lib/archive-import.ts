@@ -1,11 +1,12 @@
 import { parseQqTxt, previewStats, type ParsedMessage } from "@/lib/chat-parser";
+import { parseArchiveJson } from "@/lib/chat-json";
 import { parseQceXlsx } from "@/lib/chat-xlsx";
 import { desensitize } from "@/lib/desensitize";
 import { rowFrom, withDb } from "@/lib/db";
 
 export type ImportPreview = ReturnType<typeof previewStats> & {
   errors: string[];
-  format: "txt" | "xlsx";
+  format: "txt" | "xlsx" | "json";
 };
 
 export function previewFromTxt(raw: string): ImportPreview {
@@ -28,6 +29,19 @@ export function messagesFromTxt(raw: string): ParsedMessage[] {
 
 export function messagesFromXlsx(buffer: Buffer): ParsedMessage[] {
   return parseQceXlsx(buffer).messages;
+}
+
+export function previewFromJson(raw: string): ImportPreview {
+  const { messages, errors } = parseArchiveJson(raw);
+  return {
+    ...previewStats(messages),
+    errors: errors.slice(0, 20),
+    format: "json",
+  };
+}
+
+export function messagesFromJson(raw: string): ParsedMessage[] {
+  return parseArchiveJson(raw).messages;
 }
 
 /** 写入批次 + 消息；大文件可能较慢 */

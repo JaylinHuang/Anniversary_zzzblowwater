@@ -65,7 +65,12 @@ export async function GET() {
        LEFT JOIN users u ON u.id = p.user_id
        ORDER BY p.piece_index`,
     );
-    const questions = rowsFrom(
+    const questions = rowsFrom<{
+      id: number;
+      question: string;
+      options: string;
+      badge: string | null;
+    }>(
       db,
       `SELECT id, question, options, badge FROM quiz_questions WHERE active = 1`,
     ).map((q) => ({

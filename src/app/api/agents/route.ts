@@ -191,27 +191,20 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Agent 不存在" }, { status: 404 });
       }
       const { indexEmbeddingsForQq } = await import("@/lib/rag");
-      // 强制重建：先清该 QQ 当前模型向量
-      const { getEmbeddingConfig } = await import("@/lib/llm");
+      const { resolveEmbedBackend } = await import("@/lib/llm");
       const { withDb } = await import("@/lib/db");
-      const cfg = getEmbeddingConfig();
-      if (!cfg) {
-        return NextResponse.json(
-          {
-            error:
-              "未配置 Embeddings。请设置 EMBEDDING_MODEL（及可用的 EMBEDDING_API_BASE），DeepSeek 聊天接口通常不提供向量。",
-          },
-          { status: 400 },
-        );
-      }
+      const backend = await resolveEmbedBackend();
       await withDb((db) => {
         db.run(
           `DELETE FROM chat_embeddings WHERE qq_number = ? AND model = ?`,
-          [agent.qq, cfg.model],
+          [agent.qq, backend.model],
         );
       });
       const result = await indexEmbeddingsForQq(agent.qq);
-      return NextResponse.json({ ok: true, qq: agent.qq, ...result });
+      const notice = result.local
+        ? `云端业务空间拒绝了当前密钥，已用本地检索索引 ${result.indexed} 条原话。换上该空间自己的 Key 并重启后，再点一次会改走云端向量。`
+        : undefined;
+      return NextResponse.json({ ok: true, qq: agent.qq, ...result, notice });
     }
 
     if (action === "dm") {

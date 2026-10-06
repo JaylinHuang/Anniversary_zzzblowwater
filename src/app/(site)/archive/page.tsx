@@ -1,3 +1,4 @@
+import { PageStage } from "@/components/fx/PageStage";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getDb, rowsFrom } from "@/lib/db";
 import { getSessionUser, isAdmin, canModerate } from "@/lib/auth";
@@ -56,11 +57,29 @@ export default async function ArchivePage({
     : [];
 
   return (
-    <div>
-      <h1 className="brand-font text-3xl text-[var(--cyan)]">群聊归档</h1>
-      <p className="mt-2 text-sm text-[var(--fog)]">
-        管理员可导入 QQ TXT 或 QCE 的 xlsx；全站已脱敏。可检索、标记金句。
-      </p>
+    <PageStage
+      code="HDD-03"
+      channel="ARCHIVE"
+      title="群聊归档"
+      lede="管理员可导入 zzz-archive JSON；全站已脱敏。可检索、标记金句。"
+      rail={
+        topSenders.length ? (
+          <div className="page-index">
+            <p className="eyebrow">SENDERS</p>
+            <ul>
+              {topSenders.slice(0, 8).map((name) => (
+                <li key={name}>
+                  <a href={`/archive?q=${encodeURIComponent(name)}`}>
+                    <span>{name}</span>
+                    <small>按这个名字检索</small>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null
+      }
+    >
       <ArchiveClient
         initialMessages={messages}
         batches={batches}
@@ -69,6 +88,6 @@ export default async function ArchivePage({
         initialQuery={q}
         topSenders={topSenders}
       />
-    </div>
+    </PageStage>
   );
 }

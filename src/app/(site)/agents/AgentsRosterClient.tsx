@@ -156,14 +156,15 @@ export function AgentAdminActions({
     if (!ok) return;
     setBusy(true);
     try {
-      const data = await apiFetch<{ indexed: number; model: string }>(
-        "/api/agents",
-        {
-          method: "POST",
-          body: JSON.stringify({ action: "reindex-rag", id }),
-        },
-      );
-      success(`已索引 ${data.indexed} 条 · ${data.model}`);
+      const data = await apiFetch<{
+        indexed: number;
+        model: string;
+        notice?: string;
+      }>("/api/agents", {
+        method: "POST",
+        body: JSON.stringify({ action: "reindex-rag", id }),
+      });
+      success(data.notice || `已索引 ${data.indexed} 条 · ${data.model}`);
     } catch (err) {
       error(err instanceof Error ? err.message : "索引失败");
     } finally {

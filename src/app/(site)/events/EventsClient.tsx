@@ -145,9 +145,9 @@ export function EventsClient({
   }
 
   return (
-    <div className="mt-6 space-y-8">
+    <div className="grid gap-4 lg:grid-cols-2">
       {canModerate ? (
-        <form onSubmit={createEvent} className="panel grid gap-3 rounded-2xl p-5">
+        <form onSubmit={createEvent} className="panel grid gap-3 rounded-2xl p-5 lg:col-span-2">
           <input
             className="input"
             placeholder="活动/公告标题"
@@ -210,6 +210,7 @@ export function EventsClient({
       ) : null}
 
       <div className="space-y-3">
+        <h2 className="stage-sec">报名</h2>
         {events.map((ev) => (
           <article key={ev.id} className="panel rounded-2xl p-5">
             <div className="text-xs text-[var(--amber)]">
@@ -250,7 +251,7 @@ export function EventsClient({
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-lg text-[var(--amber)]">投票</h2>
+        <h2 className="stage-sec">投票</h2>
         {polls.map((p) => {
           const total = p.tallies.reduce((a, b) => a + b, 0);
           const mine = myVoteLabel(p.options, p.myVote);

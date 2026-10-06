@@ -15,7 +15,6 @@ export const MORE_NAV_KEYS: ModuleKey[] = [
   "fun-stats",
   "events-hub",
   "media-gallery",
-  "lore-constellation",
 ];
 
 export type NavLink = {

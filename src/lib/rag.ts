@@ -1,11 +1,9 @@
-import { isCountableTextMessage } from "@/lib/chat-parser";
+import { BOT_GROUP_NAMES, isBotGroupName } from "@/lib/bot-chat";
+import { isAgentCorpusText } from "@/lib/chat-parser";
 import { ragIndexPerQq, ragTopK } from "@/lib/constants";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
-import {
-  embedTexts,
-  getEmbeddingConfig,
-  isEmbeddingConfigured,
-} from "@/lib/llm";
+import { embedTexts, resolveEmbedBackend } from "@/lib/llm";
+import { normalizeText, rerankHits } from "@/lib/rag-rerank";
 
 function cosine(a: number[], b: number[]): number {
   let dot = 0;
@@ -28,34 +26,90 @@ export type RagHit = {
   score: number;
 };
 
-/** 为某 QQ 的近期可计票发言建立/刷新向量索引 */
+/** 本地索引覆盖全年，云端仍按条数上限控制费用 */
+function takeIndexRows<T>(rows: T[], limit: number, local: boolean): T[] {
+  if (rows.length <= limit) return rows;
+  if (!local) return rows.slice(-limit);
+  const recentCount = Math.min(400, Math.floor(limit / 4));
+  const recent = rows.slice(-recentCount);
+  const older = rows.slice(0, rows.length - recentCount);
+  const need = limit - recent.length;
+  const picked: T[] = [];
+  const step = older.length / need;
+  for (let i = 0; i < need; i++) {
+    picked.push(older[Math.min(older.length - 1, Math.floor(i * step))]);
+  }
+  return [...picked, ...recent];
+}
+
+let botEmbeddingsPurged = false;
+
+/** 删掉已经写进向量库、但其实是跟机器人对话的旧索引 */
+async function purgeBotEmbeddings(): Promise<void> {
+  if (botEmbeddingsPurged) return;
+  botEmbeddingsPurged = true;
+  const nameSlots = BOT_GROUP_NAMES.map(() => "?").join(", ");
+  const likeSlots = BOT_GROUP_NAMES.map(() => "content LIKE ?").join(" OR ");
+  const likeParams = BOT_GROUP_NAMES.map((name) => `%${name}%`);
+  await withDb((db) => {
+    db.run(
+      `DELETE FROM chat_embeddings WHERE message_id IN (
+         SELECT id FROM chat_messages WHERE ${likeSlots}
+       )`,
+      likeParams,
+    );
+    db.run(
+      `DELETE FROM chat_embeddings WHERE qq_number IN (
+         SELECT DISTINCT qq_number FROM chat_messages
+         WHERE sender IN (${nameSlots})
+           AND qq_number IS NOT NULL AND qq_number != ''
+       )`,
+      [...BOT_GROUP_NAMES],
+    );
+  });
+}
+
+/** 为某 QQ 的发言建立/刷新向量索引 */
 export async function indexEmbeddingsForQq(qq: string): Promise<{
   indexed: number;
   model: string;
+  local: boolean;
 }> {
-  if (!isEmbeddingConfigured()) {
-    throw new Error("未配置 Embeddings（EMBEDDING_MODEL / LLM_API_KEY）");
-  }
-  const cfg = getEmbeddingConfig()!;
-  const limit = ragIndexPerQq();
+  const backend = await resolveEmbedBackend();
+  await purgeBotEmbeddings();
   const db = await getDb();
-  const rows = rowsFrom<{
-    id: number;
-    content: string;
-    sent_at: string | null;
-  }>(
+  const botSpeaker = rowFrom<{ sender: string }>(
     db,
-    `SELECT m.id, m.content, m.sent_at
-     FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' AND m.qq_number = ?
-     ORDER BY m.sent_at DESC, m.id DESC
-     LIMIT ?`,
-    [qq, limit * 2],
-  ).filter((r) => isCountableTextMessage(r.content)).slice(0, limit);
+    `SELECT sender FROM chat_messages
+     WHERE qq_number = ? AND sender IN (${BOT_GROUP_NAMES.map(() => "?").join(", ")})
+     LIMIT 1`,
+    [qq, ...BOT_GROUP_NAMES],
+  );
+  if (botSpeaker || isBotGroupName(qq)) {
+    return { indexed: 0, model: backend.model, local: backend.local };
+  }
+  const limit = backend.local ? Math.max(ragIndexPerQq(), 2000) : ragIndexPerQq();
+  const rows = takeIndexRows(
+    rowsFrom<{
+      id: number;
+      content: string;
+      sent_at: string | null;
+    }>(
+      db,
+      `SELECT m.id, m.content, m.sent_at
+       FROM chat_messages m
+       JOIN import_batches b ON b.id = m.batch_id
+       WHERE b.status = 'active' AND m.qq_number = ?
+       ORDER BY m.sent_at ASC, m.id ASC`,
+      [qq],
+    ).filter((r) => isAgentCorpusText(r.content)),
+    limit,
+    backend.local,
+  );
+  const uniqueRows = dedupeIndexRows(rows);
 
-  if (!rows.length) {
-    return { indexed: 0, model: cfg.model };
+  if (!uniqueRows.length) {
+    return { indexed: 0, model: backend.model, local: backend.local };
   }
 
   // 只补缺：已有同 model 的跳过
@@ -64,12 +118,12 @@ export async function indexEmbeddingsForQq(qq: string): Promise<{
       db,
       `SELECT message_id FROM chat_embeddings
        WHERE qq_number = ? AND model = ?`,
-      [qq, cfg.model],
+      [qq, backend.model],
     ).map((r) => r.message_id),
   );
-  const todo = rows.filter((r) => !existing.has(r.id));
+  const todo = uniqueRows.filter((r) => !existing.has(r.id));
   if (!todo.length) {
-    return { indexed: 0, model: cfg.model };
+    return { indexed: 0, model: backend.model, local: backend.local };
   }
 
   const vectors = await embedTexts(todo.map((r) => r.content));
@@ -84,7 +138,7 @@ export async function indexEmbeddingsForQq(qq: string): Promise<{
         [
           row.id,
           qq,
-          cfg.model,
+          backend.model,
           vec.length,
           JSON.stringify(vec),
           row.content.slice(0, 120),
@@ -92,7 +146,7 @@ export async function indexEmbeddingsForQq(qq: string): Promise<{
       );
     }
   });
-  return { indexed: todo.length, model: cfg.model };
+  return { indexed: todo.length, model: backend.model, local: backend.local };
 }
 
 /** 按用户问题检索该群友相关历史发言 */
@@ -101,11 +155,13 @@ export async function retrieveRagForQq(
   query: string,
   topK = ragTopK(),
 ): Promise<RagHit[]> {
-  if (!ragEnabledSafe() || !isEmbeddingConfigured()) return [];
+  if (!ragEnabledSafe()) return [];
   const q = query.trim();
   if (!q || !qq) return [];
+  if (isBotGroupName(qq)) return [];
 
-  const cfg = getEmbeddingConfig()!;
+  await purgeBotEmbeddings();
+  const backend = await resolveEmbedBackend();
   let count = Number(
     (
       await (async () => {
@@ -114,7 +170,7 @@ export async function retrieveRagForQq(
           db,
           `SELECT COUNT(*) as c FROM chat_embeddings
            WHERE qq_number = ? AND model = ?`,
-          [qq, cfg.model],
+          [qq, backend.model],
         );
       })()
     )?.c ?? 0,
@@ -130,7 +186,7 @@ export async function retrieveRagForQq(
           db,
           `SELECT COUNT(*) as c FROM chat_embeddings
            WHERE qq_number = ? AND model = ?`,
-          [qq, cfg.model],
+          [qq, backend.model],
         )?.c ?? 0,
       );
     } catch {
@@ -149,7 +205,7 @@ export async function retrieveRagForQq(
     db,
     `SELECT message_id, vector_json, content_preview
      FROM chat_embeddings WHERE qq_number = ? AND model = ?`,
-    [qq, cfg.model],
+    [qq, backend.model],
   );
 
   const scored: RagHit[] = [];
@@ -169,11 +225,10 @@ export async function retrieveRagForQq(
     });
   }
   scored.sort((a, b) => b.score - a.score);
-  const top = scored.slice(0, topK);
-  if (!top.length) return [];
+  const pool = scored.slice(0, Math.max(topK * 6, topK));
+  if (!pool.length) return [];
 
-  // 取完整 content + 时间
-  const ids = top.map((t) => t.messageId);
+  const ids = pool.map((t) => t.messageId);
   const placeholders = ids.map(() => "?").join(",");
   const full = rowsFrom<{
     id: number;
@@ -185,15 +240,40 @@ export async function retrieveRagForQq(
     ids,
   );
   const byId = new Map(full.map((f) => [f.id, f]));
-  return top.map((t) => {
-    const f = byId.get(t.messageId);
-    return {
-      messageId: t.messageId,
-      content: f?.content || t.content,
-      sentAt: f?.sent_at ?? null,
-      score: t.score,
-    };
-  });
+  return rerankHits(
+    q,
+    pool.map((t) => {
+      const row = byId.get(t.messageId);
+      return {
+        messageId: t.messageId,
+        content: row?.content || t.content,
+        sentAt: row?.sent_at ?? null,
+        vectorScore: t.score,
+      };
+    }),
+    topK,
+  ).map((hit) => ({
+    messageId: hit.messageId,
+    content: hit.content,
+    sentAt: hit.sentAt,
+    score: hit.vectorScore,
+  }));
+}
+
+/** 同一句规范化后只保留时间更晚的一条，避免重复脏数据进索引 */
+function dedupeIndexRows<T extends { content: string; sent_at: string | null }>(
+  rows: T[],
+): T[] {
+  const kept = new Map<string, T>();
+  for (const row of rows) {
+    const key = normalizeText(row.content);
+    if (!key) continue;
+    const prev = kept.get(key);
+    if (!prev || (row.sent_at || "") >= (prev.sent_at || "")) {
+      kept.set(key, row);
+    }
+  }
+  return [...kept.values()];
 }
 
 function ragEnabledSafe() {
@@ -208,7 +288,7 @@ export function formatRagBlock(hits: RagHit[]): string {
     return `${i + 1}. ${when}${h.content.slice(0, 200)}`;
   });
   return [
-    "以下是与当前话题相关的你在群里的历史发言摘录（仅供模仿口吻与梗，不要逐字复读隐私或攻击性内容）：",
+    "以下是检索后留下的原话。只能引用这里写过的事实；没写的时间、数字、人名和原因不要补。相似句已合并，互相矛盾的旧说法已去掉：",
     ...lines,
   ].join("\n");
 }

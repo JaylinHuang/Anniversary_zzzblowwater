@@ -1,3 +1,4 @@
+import { PageStage } from "@/components/fx/PageStage";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getDb, rowsFrom } from "@/lib/db";
 import { canModerate, getSessionUser } from "@/lib/auth";
@@ -47,17 +48,27 @@ export default async function GalleryPage() {
     : [];
 
   return (
-    <div>
-      <h1 className="brand-font text-3xl text-[var(--cyan)]">Meme 馆</h1>
-      <p className="mt-2 text-sm text-[var(--fog)]">
-        群内截图与表情包。非官方素材，仅供群友回忆。
-      </p>
+    <PageStage
+      code="HDD-08"
+      channel="MEME"
+      title="Meme 馆"
+      lede="群内截图与表情包。非官方素材，仅供群友回忆。"
+      rail={
+        <div className="page-index">
+          <p className="eyebrow">WALL</p>
+          <p className="mt-2 text-sm text-[var(--fog)]">
+            已通过 {items.length} 张
+            {pending.length ? ` · 待审 ${pending.length}` : ""}
+          </p>
+        </div>
+      }
+    >
       <GalleryClient
         items={items}
         pending={pending}
         comments={comments}
         canModerate={canModerate(user!.role)}
       />
-    </div>
+    </PageStage>
   );
 }

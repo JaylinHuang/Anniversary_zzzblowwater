@@ -1,5 +1,6 @@
+import { contentMentionsBot, isBotGroupName } from "@/lib/bot-chat";
 import { agentPersonaSampleSize, GROUP_NAME } from "@/lib/constants";
-import { isCountableTextMessage } from "@/lib/chat-parser";
+import { isAgentCorpusText, isCountableTextMessage } from "@/lib/chat-parser";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
 import {
   chatCompletion,
@@ -23,7 +24,9 @@ export async function countTextsForQq(qq: string): Promise<number> {
      WHERE b.status = 'active' AND m.qq_number = ?`,
     [qq],
   );
-  return rows.filter((r) => isCountableTextMessage(r.content)).length;
+  return rows.filter(
+    (r) => isCountableTextMessage(r.content) && !contentMentionsBot(r.content),
+  ).length;
 }
 
 /** 已绑定 Agent 的 QQ 集合（实时同步时用于刷新计数） */
@@ -64,8 +67,39 @@ export async function listAgentGroupChat(qq: string, limit = 40) {
      JOIN import_batches b ON b.id = m.batch_id
      WHERE b.status = 'active' AND m.qq_number = ?
      ORDER BY m.id DESC LIMIT ?`,
-    [qq, limit],
-  );
+    [qq, Math.max(limit, limit * 8)],
+  )
+    .filter((row) => !isBotGroupName(row.sender) && !contentMentionsBot(row.content))
+    .slice(0, limit);
+}
+
+/** 网站用户在群归档里用过的发送者名。QQ 对得上就是同一个人，不另算一个群友。 */
+export async function listUserSenderNames(
+  qq: string | null,
+  displayName: string,
+): Promise<string[]> {
+  const db = await getDb();
+  const name = displayName.trim();
+  const rows = qq
+    ? rowsFrom<{ sender: string }>(
+        db,
+        `SELECT DISTINCT m.sender AS sender
+         FROM chat_messages m
+         JOIN import_batches b ON b.id = m.batch_id
+         WHERE b.status = 'active' AND (m.qq_number = ? OR m.sender = ? COLLATE NOCASE)
+         LIMIT 12`,
+        [qq, name],
+      )
+    : rowsFrom<{ sender: string }>(
+        db,
+        `SELECT DISTINCT m.sender AS sender
+         FROM chat_messages m
+         JOIN import_batches b ON b.id = m.batch_id
+         WHERE b.status = 'active' AND m.sender = ? COLLATE NOCASE
+         LIMIT 12`,
+        [name],
+      );
+  return rows.map((row) => row.sender).filter(Boolean);
 }
 
 async function buildBasePersona(
@@ -75,21 +109,21 @@ async function buildBasePersona(
 ) {
   const db = await getDb();
   const sampleSize = agentPersonaSampleSize();
-  const samples = rowsFrom<{ content: string }>(
+  const corpus = rowsFrom<{ content: string }>(
     db,
     `SELECT content FROM chat_messages m
      JOIN import_batches b ON b.id = m.batch_id
      WHERE b.status = 'active' AND m.qq_number = ?
-     ORDER BY m.sent_at DESC LIMIT ?`,
-    [qq, sampleSize * 2],
+     ORDER BY m.sent_at ASC, m.id ASC`,
+    [qq],
   )
     .map((r) => r.content)
-    .filter(isCountableTextMessage)
-    .slice(0, sampleSize);
+    .filter(isAgentCorpusText);
+  const samples = pickPersonaSamples(corpus, sampleSize);
 
   const quotes = samples
     .filter((m) => m.length >= 4 && m.length <= 80)
-    .slice(0, 5);
+    .slice(-5);
 
   if (isLlmConfigured() && samples.length >= 5) {
     try {
@@ -102,17 +136,17 @@ async function buildBasePersona(
         [
           {
             role: "system",
-            content: `你是角色设定助手。根据「${GROUP_NAME}」群聊发言样本，提炼一位群友的说话风格。只输出 JSON：style_tags, summary, system_prompt, sample_quotes。system_prompt 须为中文，要求扮演该群友、可玩梗、禁止人身攻击与编造隐私。`,
+            content: `你是角色设定助手。根据「${GROUP_NAME}」里这个人自己的发言，写一份能让模型模仿他说话的设定。只输出 JSON：style_tags, summary, system_prompt, sample_quotes。system_prompt 用中文，规定句长、语气词、口头禅、爱聊的话题和避讳。要像在描述这个人怎么开口，不要写成温柔客服或人物小传。sample_quotes 必须是样本里的原句，不要改写。禁止人身攻击，不要编造样本里没有的隐私。`,
           },
           {
             role: "user",
-            content: `昵称：${displayName}\nQQ：${qq}\n文本条数约：${textCount}\n样本：\n${samples
-              .slice(0, 40)
+            content: `昵称：${displayName}\nQQ：${qq}\n文本条数约：${textCount}\n样本从早到晚，后半段更近：\n${samples
+              .slice(0, 80)
               .map((s, i) => `${i + 1}. ${s}`)
               .join("\n")}`,
           },
         ],
-        { temperature: 0.4, maxTokens: 900 },
+        { temperature: 0.3, maxTokens: 1400 },
       );
       return {
         styleTags: parsed.style_tags?.slice(0, 8) || ["群友"],
@@ -137,6 +171,21 @@ async function buildBasePersona(
     sampleQuotes: quotes,
     sourceMsgCount: textCount,
   };
+}
+
+/** 人设样本拉开到全年：保留最近一段，其余按时间均匀抽，避免只学会最近一天 */
+export function pickPersonaSamples(lines: string[], limit: number): string[] {
+  if (lines.length <= limit) return lines;
+  const recentCount = Math.min(36, Math.floor(limit / 3));
+  const recent = lines.slice(-recentCount);
+  const older = lines.slice(0, lines.length - recentCount);
+  const need = limit - recent.length;
+  const picked: string[] = [];
+  const step = older.length / need;
+  for (let i = 0; i < need; i++) {
+    picked.push(older[Math.min(older.length - 1, Math.floor(i * step))]);
+  }
+  return [...picked, ...recent];
 }
 
 function heuristicPrompt(displayName: string, quotes: string[]) {

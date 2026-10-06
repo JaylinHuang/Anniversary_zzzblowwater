@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageStage } from "@/components/fx/PageStage";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getDb, rowFrom } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
@@ -31,10 +32,14 @@ export default async function MemberDetailPage({
   const initial = (m.display_name || "?").slice(0, 1);
 
   return (
-    <div className="panel max-w-xl rounded-2xl p-8">
-      <p className="text-xs tracking-[0.2em] text-[var(--amber)]">CODEX</p>
-      <div className="mt-3 flex items-center gap-4">
-        <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[rgba(61,224,208,0.4)] bg-[rgba(61,224,208,0.1)] brand-font text-xl text-[var(--cyan)]">
+    <PageStage
+      code="HDD-01"
+      channel="CODEX"
+      title={m.display_name}
+      lede={m.bio || "神秘绳匠，暂无档案。"}
+    >
+      <div className="dossier">
+        <span className="inline-flex h-36 w-36 items-center justify-center overflow-hidden border border-[rgba(61,224,208,0.4)] bg-[rgba(61,224,208,0.1)] brand-font text-5xl text-[var(--cyan)]">
           {m.avatar_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -46,11 +51,8 @@ export default async function MemberDetailPage({
             initial
           )}
         </span>
-        <h1 className="brand-font text-4xl text-[var(--cyan)]">
-          {m.display_name}
-        </h1>
-      </div>
-      <p className="mt-4 text-[var(--fog)]">{m.bio || "神秘绳匠，暂无档案。"}</p>
+        <div className="panel rounded-2xl p-6">
+      <p className="text-[var(--fog)]">{m.bio || "神秘绳匠，暂无档案。"}</p>
       {m.mains ? (
         <p className="mt-3 text-sm text-[var(--amber)]">擅长：{m.mains}</p>
       ) : null}
@@ -71,7 +73,9 @@ export default async function MemberDetailPage({
             {b}
           </span>
         ))}
+        </div>
       </div>
-    </div>
+      </div>
+    </PageStage>
   );
 }

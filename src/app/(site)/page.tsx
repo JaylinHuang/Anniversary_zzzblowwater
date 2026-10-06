@@ -149,7 +149,7 @@ export default async function HomePage() {
           </div>
         </div>
 
-        <div className="hero-stage-inner relative z-10 mx-auto flex max-w-6xl flex-col px-4 pb-16 pt-5 md:pb-20 md:pt-7">
+        <div className="hero-stage-inner relative z-10 mx-auto flex max-w-7xl flex-col px-4 pb-16 pt-5 md:pb-20 md:pt-7">
           {/* 顶行：眉题 + HUD 读数 */}
           <div className="anim-rise flex items-start justify-between gap-3">
             <div className="flex max-w-[48%] flex-col gap-2 md:max-w-none md:flex-row md:items-center md:gap-3">

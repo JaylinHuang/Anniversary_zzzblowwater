@@ -126,6 +126,7 @@ export function WishClient({
 
   return (
     <div className="mt-6 space-y-8">
+      <h2 className="stage-sec">祝福</h2>
       <form onSubmit={postWish} className="panel rounded-2xl p-5">
         <p className="text-sm text-[var(--fog)]">
           每位进站群友都可以在此留言；提交后立刻出现在墙上（无需管理员代发）。
@@ -156,6 +157,7 @@ export function WishClient({
         </button>
       </form>
 
+      <h2 className="stage-sec">墙上</h2>
       <div className="grid gap-3 md:grid-cols-2">
         {wishes.length === 0 ? (
           <div
@@ -217,7 +219,7 @@ export function WishClient({
       </div>
 
       <form onSubmit={postCapsule} className="panel rounded-2xl p-5">
-        <h2 className="text-[var(--amber)]">时间胶囊</h2>
+        <h2 className="stage-sec">时间胶囊</h2>
         <textarea
           ref={capsuleInputRef}
           className="input mt-3 min-h-24"

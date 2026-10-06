@@ -1,26 +1,91 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useToast } from "@/components/ToastProvider";
 import { apiFetch } from "@/lib/api-client";
 
-type Msg = { id?: number; role: "user" | "assistant"; content: string };
+type Msg = {
+  id?: number;
+  role: "user" | "assistant";
+  content: string;
+  createdAt?: string;
+};
+
+type GroupLine = {
+  id: number;
+  sender: string;
+  content: string;
+  sentAt: string | null;
+};
+
+function clock(raw?: string) {
+  if (!raw) return "";
+  const matched = raw.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (!matched) return "";
+  const today = new Date();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  const isToday =
+    matched[1] === String(today.getFullYear()) &&
+    matched[2] === month &&
+    matched[3] === day;
+  if (isToday) return `${matched[4]}:${matched[5]}`;
+  return `${Number(matched[2])}月${Number(matched[3])}日 ${matched[4]}:${matched[5]}`;
+}
+
+function gapMinutes(prev?: string, next?: string) {
+  if (!prev || !next) return true;
+  const a = Date.parse(prev.includes("T") ? prev : prev.replace(" ", "T"));
+  const b = Date.parse(next.includes("T") ? next : next.replace(" ", "T"));
+  if (Number.isNaN(a) || Number.isNaN(b)) return true;
+  return Math.abs(b - a) >= 5 * 60 * 1000;
+}
+
+function Face({
+  name,
+  src,
+}: {
+  name: string;
+  src?: string | null;
+}) {
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img className="qq-face" src={src} alt="" />
+    );
+  }
+  return <span className="qq-face qq-face-fallback">{name.slice(0, 1)}</span>;
+}
 
 export function AgentDmClient({
   agentId,
   agentName,
-  groupName,
+  agentAvatar,
+  styleCaption,
+  userName,
+  userAvatar,
   initialSessionId,
   initialMessages,
   initialQuota,
+  groupLog,
 }: {
   agentId: number;
   agentName: string;
-  groupName: string;
+  agentAvatar: string | null;
+  styleCaption: string;
+  userName: string;
+  userAvatar: string | null;
   initialSessionId: number;
   initialMessages: Msg[];
   initialQuota: { used: number; limit: number };
+  groupLog: GroupLine[];
 }) {
   const { error: toastError, success } = useToast();
   const [sessionId, setSessionId] = useState(initialSessionId);
@@ -28,16 +93,25 @@ export function AgentDmClient({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [quota, setQuota] = useState(initialQuota);
-  const quotaLabel = `今日额度 ${quota.used}/${quota.limit}`;
+  const [showLog, setShowLog] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sending = useRef(false);
   const quotaFull = quota.used >= quota.limit;
 
-  async function send(e: FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || busy || quotaFull) return;
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, busy]);
+
+  async function sendText(text: string) {
+    if (!text || sending.current || quotaFull) return;
+    sending.current = true;
     setInput("");
-    // 乐观追加的这一句；失败时按引用精确撤回
-    const optimistic: Msg = { role: "user", content: text };
+    const optimistic: Msg = {
+      role: "user",
+      content: text,
+      createdAt: new Date().toISOString(),
+    };
     setMessages((prev) => [...prev, optimistic]);
     setBusy(true);
     try {
@@ -55,15 +129,32 @@ export function AgentDmClient({
       }
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply },
+        {
+          role: "assistant",
+          content: data.reply,
+          createdAt: new Date().toISOString(),
+        },
       ]);
     } catch (err) {
-      // 发送失败：撤回刚追加的那句，并把文字放回输入框方便重试
       setMessages((prev) => prev.filter((m) => m !== optimistic));
       setInput((cur) => cur || text);
       toastError(err instanceof Error ? err.message : "发送失败");
     } finally {
+      sending.current = false;
       setBusy(false);
+      inputRef.current?.focus();
+    }
+  }
+
+  function send(e: FormEvent) {
+    e.preventDefault();
+    void sendText(input.trim());
+  }
+
+  function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void sendText(input.trim());
     }
   }
 
@@ -85,17 +176,30 @@ export function AgentDmClient({
   }
 
   return (
-    <div className="mt-6">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--fog)]">
-        <span>
-          会话 #{sessionId} · 仅你可见 · 不进「{groupName}」群归档
-          {` · ${quotaLabel}`}
-          {quotaFull ? "（已用完，明天再来）" : ""}
-        </span>
-        <div className="flex gap-2">
-          <Link href="/agents" className="btn btn-ghost">
-            返回列表
-          </Link>
+    <div className="qq-window">
+      <header className="qq-bar">
+        <Link href="/agents" className="qq-back" aria-label="返回群友列表">
+          返回
+        </Link>
+        <Face name={agentName} src={agentAvatar} />
+        <div className="qq-bar-text">
+          <div className="qq-bar-name">{agentName}</div>
+          <div className="qq-bar-sub">
+            分身模拟，不是本人在线
+            {styleCaption ? ` · ${styleCaption}` : ""}
+            {` · 今日 ${quota.used}/${quota.limit}`}
+          </div>
+        </div>
+        <div className="qq-bar-actions">
+          {groupLog.length ? (
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => setShowLog((open) => !open)}
+            >
+              {showLog ? "收起记录" : "群记录"}
+            </button>
+          ) : null}
           <button
             className="btn btn-ghost"
             type="button"
@@ -105,39 +209,83 @@ export function AgentDmClient({
             新会话
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="panel max-h-[520px] space-y-3 overflow-y-auto rounded-2xl p-5">
-        {messages.length === 0 ? (
-          <p className="text-sm text-[var(--fog)]">
-            和「{agentName}」打个招呼吧。人设来自 {groupName} 语料；对你的印象会私有漂移。
-          </p>
-        ) : (
-          messages.map((m, i) => (
-            <div key={i} className="text-sm">
-              <div
-                className={
-                  m.role === "user" ? "text-[var(--cyan)]" : "text-[var(--amber)]"
-                }
-              >
-                {m.role === "user" ? "你" : agentName}
+      <div className="qq-body">
+        <div className="qq-thread" aria-live="polite">
+          {messages.length === 0 ? (
+            <p className="qq-empty">
+              和 {agentName} 打个招呼。记录只你能看，会话 #{sessionId}
+            </p>
+          ) : (
+            messages.map((message, index) => {
+              const mine = message.role === "user";
+              const prev = messages[index - 1];
+              const showClock =
+                index === 0 || gapMinutes(prev?.createdAt, message.createdAt);
+              return (
+                <div key={message.id ?? `m-${index}`}>
+                  {showClock && clock(message.createdAt) ? (
+                    <div className="qq-time">{clock(message.createdAt)}</div>
+                  ) : null}
+                  <div className={mine ? "qq-row is-mine" : "qq-row"}>
+                    <Face
+                      name={mine ? userName : agentName}
+                      src={mine ? userAvatar : agentAvatar}
+                    />
+                    <div className={mine ? "qq-bubble is-mine" : "qq-bubble"}>
+                      {message.content}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+          {busy ? (
+            <div className="qq-row">
+              <Face name={agentName} src={agentAvatar} />
+              <div className="qq-bubble qq-typing" aria-label="正在输入">
+                <span />
+                <span />
+                <span />
               </div>
-              <p className="mt-1 whitespace-pre-wrap">{m.content}</p>
             </div>
-          ))
-        )}
+          ) : null}
+          <div ref={endRef} />
+        </div>
+
+        {showLog ? (
+          <aside className="qq-log">
+            <p className="qq-log-title">近期群聊</p>
+            <ul>
+              {groupLog.map((line) => (
+                <li key={line.id}>
+                  <span>
+                    {line.sentAt || "?"} · {line.sender}
+                  </span>
+                  <p>{line.content}</p>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        ) : null}
       </div>
 
-      <form onSubmit={send} className="mt-4 flex gap-2">
-        <input
-          className="input"
+      <form className="qq-compose" onSubmit={send}>
+        <textarea
+          ref={inputRef}
+          className="input qq-input"
           value={input}
+          rows={2}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={`对 ${agentName} 说…`}
-          disabled={busy || quotaFull}
+          onKeyDown={onKey}
+          placeholder={
+            quotaFull ? "今天的额度用完了，明天再来" : `对 ${agentName} 说…`
+          }
+          disabled={quotaFull}
         />
-        <button className="btn" type="submit" disabled={busy || quotaFull}>
-          {busy ? "…" : "发送"}
+        <button className="btn" type="submit" disabled={busy || quotaFull || !input.trim()}>
+          发送
         </button>
       </form>
     </div>

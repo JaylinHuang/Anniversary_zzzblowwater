@@ -1,3 +1,4 @@
+import { PageStage } from "@/components/fx/PageStage";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getDb, rowFrom, rowsFrom } from "@/lib/db";
 import { GamesClient } from "./GamesClient";
@@ -79,11 +80,12 @@ export default async function GamesPage() {
   ).map((r) => r.display_name);
 
   return (
-    <div>
-      <h1 className="brand-font text-3xl text-[var(--cyan)]">周年玩法</h1>
-      <p className="mt-2 text-sm text-[var(--fog)]">
-        推荐先玩「猜说话人」或扭蛋；下面还有求签、考试和拼图。
-      </p>
+    <PageStage
+      code="HDD-06"
+      channel="ARCADE"
+      title="周年玩法"
+      lede="推荐先玩「猜说话人」或扭蛋；下面还有求签、考试和拼图。"
+    >
       <GamesClient
         pieces={pieces}
         questions={questions}
@@ -92,6 +94,6 @@ export default async function GamesPage() {
         puzzleRemaining={puzzleRemaining(dailyUsed)}
         quizMasters={quizMasters}
       />
-    </div>
+    </PageStage>
   );
 }

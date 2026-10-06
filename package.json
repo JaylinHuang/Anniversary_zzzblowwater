@@ -10,7 +10,6 @@
     "db:init": "tsx scripts/init-db.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:sample-import": "tsx scripts/sample-import.ts",
-    "db:seed-lore": "tsx scripts/seed-lore.ts",
     "db:seed-celebration": "tsx scripts/seed-celebration.ts",
     "test:logic": "tsx scripts/test-logic.ts",
     "test:roster": "tsx scripts/test-roster-demo.ts",

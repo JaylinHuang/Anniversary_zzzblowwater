@@ -261,10 +261,10 @@ export function GamesClient({
   }
 
   return (
-    <div className="mt-8 space-y-8">
+    <div className="grid gap-4 lg:grid-cols-2">
       <section className="panel rounded-2xl p-6">
         <p className="text-xs tracking-[0.2em] text-[var(--cyan)]">今日推荐</p>
-        <h2 className="mt-1 text-[var(--amber)]">猜说话人</h2>
+        <h2 className="stage-sec">猜说话人</h2>
         <p className="mt-2 text-sm text-[var(--fog)]">
           从群聊归档抽一句，猜是谁说的（需已导入语料）。
         </p>
@@ -300,7 +300,7 @@ export function GamesClient({
       </section>
 
       <section className="panel rounded-2xl p-6">
-        <h2 className="text-[var(--amber)]">群友扭蛋</h2>
+        <h2 className="stage-sec">群友扭蛋</h2>
         <div className="mt-4 flex items-center gap-5">
           {/* 胶囊：运转中摇晃，开出后弹盖；key 跟着轮次走，每次都重播开盖 */}
           <GachaCapsule
@@ -322,7 +322,7 @@ export function GamesClient({
       </section>
 
       <section className="panel rounded-2xl p-6">
-        <h2 className="text-[var(--amber)]">每日签</h2>
+        <h2 className="stage-sec">每日签</h2>
         {fortune ? (
           <>
             <p className="mt-2 text-xs text-[var(--cyan)]">今日已求签</p>
@@ -337,7 +337,7 @@ export function GamesClient({
 
       <section className="panel rounded-2xl p-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-[var(--amber)]">群梗考试</h2>
+          <h2 className="stage-sec">群梗考试</h2>
           {canModerate ? (
             <button className="btn btn-ghost" type="button" onClick={addQuiz}>
               出题
@@ -394,8 +394,8 @@ export function GamesClient({
         </div>
       </section>
 
-      <section className="panel rounded-2xl p-6">
-        <h2 className="text-[var(--amber)]">合作拼图</h2>
+      <section className="panel rounded-2xl p-6 lg:col-span-2">
+        <h2 className="stage-sec">合作拼图</h2>
         <p className="mt-2 text-sm text-[var(--fog)]">
           每人每天最多点亮 {PUZZLE_DAILY_LIMIT} 块 ·{" "}
           {remaining > 0

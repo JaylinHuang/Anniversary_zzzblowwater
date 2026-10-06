@@ -74,7 +74,7 @@ export async function getSetupStatus(): Promise<{
       id: "archive",
       label: "已导入群聊归档",
       ok: msgCount >= 1,
-      hint: "管理端导入 QQ TXT，或 npm run db:sample-import",
+      hint: "管理端导入 zzz-archive JSON，或 npm run db:sample-import",
       critical: false,
     },
     {

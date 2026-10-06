@@ -1,9 +1,8 @@
+import { BOT_GROUP_NAMES } from "@/lib/bot-chat";
+import { GROUP_NAME } from "@/lib/constants";
 import { getDb, rowsFrom, rowFrom } from "@/lib/db";
-import {
-  chineseBigramFreq,
-  isNightOwlHour,
-  nightOwlRatio,
-} from "@/lib/stats-rules";
+import { fillHourBuckets, isNightOwlHour, nightOwlRatio } from "@/lib/stats-rules";
+import { cleanWordCloud } from "@/lib/wordcloud-clean";
 
 export async function computeFunStats(anonymous: boolean) {
   const db = await getDb();
@@ -44,14 +43,31 @@ export async function computeFunStats(anonymous: boolean) {
     .filter((h) => isNightOwlHour(Number(h.hour)))
     .reduce((s, h) => s + Number(h.cnt), 0);
 
+  const nameSlots = BOT_GROUP_NAMES.map(() => "?").join(", ");
+  const likeSlots = BOT_GROUP_NAMES.map(() => "m.content LIKE ?").join(" OR ");
+  const nameParams = [...BOT_GROUP_NAMES];
+  const likeParams = BOT_GROUP_NAMES.map((name) => `%${name}%`);
+  // 机器人发的、它的 QQ 发的、以及正文里点名这些群名片的，都不进词云
   const texts = rowsFrom<{ content: string }>(
     db,
-    `SELECT content FROM chat_messages m
+    `SELECT m.content FROM chat_messages m
      JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' LIMIT 5000`,
+     WHERE b.status = 'active'
+       AND m.sender NOT IN (${nameSlots})
+       AND (
+         m.qq_number IS NULL OR m.qq_number = '' OR m.qq_number NOT IN (
+           SELECT DISTINCT qq_number FROM chat_messages
+           WHERE sender IN (${nameSlots})
+             AND qq_number IS NOT NULL AND qq_number != ''
+         )
+       )
+       AND NOT (${likeSlots})
+     ORDER BY m.id DESC
+     LIMIT 8000`,
+    [...nameParams, ...nameParams, ...likeParams],
   ).map((t) => t.content);
 
-  const words = chineseBigramFreq(texts, 40);
+  const words = await cleanWordCloud(texts, GROUP_NAME, 40, [...BOT_GROUP_NAMES]);
 
   const total = Number(
     rowFrom<{ c: number }>(
@@ -66,7 +82,9 @@ export async function computeFunStats(anonymous: boolean) {
   return {
     totalMessages: total,
     leaderboard,
-    hourBuckets: hours.map((h) => ({ hour: h.hour, count: Number(h.cnt) })),
+    hourBuckets: fillHourBuckets(
+      hours.map((h) => ({ hour: h.hour, count: Number(h.cnt) })),
+    ),
     nightOwlMessages: night,
     nightOwlPercent: nightOwlRatio(night, withTime || total),
     words,

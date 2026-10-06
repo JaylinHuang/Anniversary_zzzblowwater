@@ -1,3 +1,4 @@
+import { PageStage } from "@/components/fx/PageStage";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getDb, rowsFrom } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
@@ -36,13 +37,23 @@ export default async function MembersPage() {
     }));
 
   return (
-    <div>
-      <h1 className="brand-font text-3xl text-[var(--cyan)]">群友图鉴</h1>
-      <p className="mt-2 text-sm text-[var(--fog)]">
-        收集每一位同行者。可在下方编辑自己的名片与隐私设置。
-      </p>
+    <PageStage
+      code="HDD-01"
+      channel="CODEX"
+      title="群友图鉴"
+      lede="收集每一位同行者。可在下方编辑自己的名片与隐私设置。"
+      rail={
+        <div className="page-index">
+          <p className="eyebrow">COUNT</p>
+          <p className="mt-2 font-[family-name:var(--font-display)] text-3xl text-[var(--cyan)]">
+            {members.length}
+          </p>
+          <p className="text-xs text-[var(--fog)]">张公开名片</p>
+        </div>
+      }
+    >
       {me ? <ProfileEditor userId={me.id} /> : null}
       <MembersBrowse members={members} />
-    </div>
+    </PageStage>
   );
 }

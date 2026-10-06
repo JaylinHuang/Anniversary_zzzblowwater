@@ -26,7 +26,6 @@ npm run dev
 ```bash
 npm run db:seed           # 里程碑 / 题目 / 庆典公告
 npm run db:sample-import  # 试导入脱敏样本聊天
-npm run db:seed-lore      # 人物关系星图野史样本
 npm run test:logic        # 无服务依赖的逻辑自测
 npm run test:all          # 逻辑 + 若干 demo + smoke（smoke 需先起服务）
 ```
@@ -58,7 +57,7 @@ docker run -d -p 3000:3000 \
 
 - 口令墙、角色权限、模块开关、管理后台（含改口令）
 - 首页：品牌首屏、倒计时、签到 / 金句 / 聚光灯等
-- 群友图鉴、时光卷轴、群聊归档（TXT 导入 + 金句）
+- 群友图鉴、时光卷轴、群聊归档（JSON 导入 + 金句）
 - 趣味统计、祝福墙 / 时间胶囊
 - 派对游戏：扭蛋、签文、问答、拼图、猜说话人
 - 活动报名与投票、Meme 馆、人物关系星图
@@ -86,11 +85,11 @@ ONEBOT_GROUP_ID=你的QQ群号
 
 4. 群内新消息会进入归档批次 `onebot-live`（自动脱敏、按 message_id 去重）。
 
-> 历史一年仍建议用管理员导出导入；新版 QQ（NT）常无 TXT 导出。机器人主要覆盖「上线之后」的新消息。
+> 历史记录用管理员导入 zzz-archive JSON。机器人主要覆盖「上线之后」的新消息。
 
 ## 群友 Agent（手动建档）
 
-1. （可选）导入带 QQ 号的群聊 TXT，便于语料计数与人设抽样。
+1. （可选）导入带 QQ 号的 zzz-archive JSON，便于语料计数与人设抽样。
 2. 配置大模型：
 
 ```env

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageStage } from "@/components/fx/PageStage";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 import { GROUP_NAME } from "@/lib/constants";
@@ -21,13 +22,29 @@ export default async function AgentsPage() {
     : { used: 0, limit: 40, remaining: 40 };
 
   return (
-    <div>
-      <h1 className="brand-font text-3xl text-[var(--cyan)]">群友 Agent</h1>
-      <p className="mt-2 max-w-2xl text-sm text-[var(--fog)]">
-        {canManage
+    <PageStage
+      code="HDD-09"
+      channel="AGENTS"
+      title="群友 Agent"
+      lede={
+        canManage
           ? `管理员可在此为「${GROUP_NAME}」建档分身（姓名、插画、绑定 QQ）。成员点进卡片即可单聊。`
-          : `点进卡片，和「${GROUP_NAME}」里已建档的群友分身一对一聊聊。对话只你可见，不会进群归档。`}
-      </p>
+          : `点进卡片，和「${GROUP_NAME}」里已建档的群友分身说话。聊天记录只你能看，但同一个分身的记忆是所有人共用的一份。`
+      }
+      rail={
+        <div className="page-index">
+          <p className="eyebrow">QUOTA</p>
+          <p className="mt-2 text-sm text-[var(--fog)]">
+            今日单聊还剩{" "}
+            <span className="text-[var(--cyan)]">{dmQuota.remaining}</span> /{" "}
+            {dmQuota.limit}
+          </p>
+          <p className="mt-2 text-xs text-[var(--fog)]">
+            已建档 {agents.length} 人
+          </p>
+        </div>
+      }
+    >
       <AgentsRosterClient
         groupName={GROUP_NAME}
         llmConfigured={isLlmConfigured()}
@@ -35,8 +52,9 @@ export default async function AgentsPage() {
         canManage={canManage}
         dmQuota={dmQuota}
       />
+      <h2 className="stage-sec mt-6">名册</h2>
       {agents.length ? (
-        <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {agents.map((a) => (
             <li key={a.id} className="panel rounded-2xl p-5">
               <Link
@@ -88,6 +106,6 @@ export default async function AgentsPage() {
             : "管理员还没建档任何 Agent，稍后再来看看吧。"}
         </p>
       )}
-    </div>
+    </PageStage>
   );
 }

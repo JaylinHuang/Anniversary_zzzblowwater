@@ -68,7 +68,7 @@ export function SiteNav({
 
   return (
     <header className="site-header sticky top-0 z-40">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-2.5">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2.5">
         {/* 品牌贴纸 + 频道计数 */}
         <Link href="/" className="flex items-center gap-3" aria-label={SITE_BRAND}>
           <span className="sticker sticker-brand">{SITE_BRAND}</span>

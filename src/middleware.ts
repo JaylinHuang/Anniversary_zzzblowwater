@@ -9,6 +9,7 @@ const PUBLIC = [
   "/api/auth/send-code",
   "/api/auth/logout",
   "/api/webhooks/onebot",
+  "/api/cron/daily-flush",
   "/api/health",
 ];
 

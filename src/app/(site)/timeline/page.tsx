@@ -1,3 +1,4 @@
+import { PageStage } from "@/components/fx/PageStage";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getDb, rowFrom, rowsFrom } from "@/lib/db";
 import { canModerate, getSessionUser } from "@/lib/auth";
@@ -33,13 +34,15 @@ export default async function TimelinePage({
   }
 
   return (
-    <div>
-      <h1 className="brand-font text-3xl text-[var(--cyan)]">时光卷轴</h1>
-      <p className="mt-2 text-sm text-[var(--fog)]">
-        从建群到一周年的里程碑。正日锚点 7/10，今年庆典 8/4。
-      </p>
+    <PageStage
+      code="HDD-02"
+      channel="TIMELINE"
+      title="时光卷轴"
+      lede="从建群到一周年的里程碑。正日锚点 7/10，今年庆典 8/4。"
+    >
       {user && canModerate(user.role) ? <MilestoneForm /> : null}
-      <div className="relative mt-10 space-y-6 border-l border-[var(--line)] pl-6">
+      <h2 className="stage-sec">里程碑</h2>
+      <div className="timeline-alt">
         {items.map((item) => {
           const tags = JSON.parse(item.tags || "[]") as string[];
           const quote = item.quote_id
@@ -89,6 +92,6 @@ export default async function TimelinePage({
           <p className="text-sm text-[var(--fog)]">还没有里程碑，管理员可添加。</p>
         ) : null}
       </div>
-    </div>
+    </PageStage>
   );
 }

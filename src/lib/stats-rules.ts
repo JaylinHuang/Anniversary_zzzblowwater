@@ -12,6 +12,20 @@ export function nightOwlRatio(nightCount: number, total: number): number {
   return Math.round((nightCount / total) * 1000) / 10;
 }
 
+/** 把按小时聚合的结果补成 00–23。没有时间戳时保持空数组，方便页面走空态 */
+export function fillHourBuckets(
+  rows: { hour: string; count: number }[],
+): { hour: string; count: number }[] {
+  if (rows.length === 0) return [];
+  const map = new Map(
+    rows.map((row) => [String(row.hour).padStart(2, "0"), Number(row.count) || 0]),
+  );
+  return Array.from({ length: 24 }, (_, hour) => {
+    const key = String(hour).padStart(2, "0");
+    return { hour: key, count: map.get(key) ?? 0 };
+  });
+}
+
 /** 中文双字词频（过滤过短与占位） */
 export function chineseBigramFreq(
   texts: string[],

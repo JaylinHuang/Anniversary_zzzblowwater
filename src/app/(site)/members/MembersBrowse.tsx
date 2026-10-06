@@ -20,7 +20,8 @@ export function MembersBrowse({ members }: { members: MemberCard[] }) {
       <p className="mt-2 text-xs text-[var(--fog)]">
         显示 {filtered.length} / {members.length}
       </p>
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <h2 className="stage-sec mt-4">名册</h2>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((m) => (
           <Link
             key={m.id}

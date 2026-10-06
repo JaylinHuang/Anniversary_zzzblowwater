@@ -52,7 +52,6 @@ cp .env.example .env
 npm run db:init               # 若尚无 data/app.db
 npm run db:seed               # 可选：里程碑/题目/公告
 npm run db:sample-import      # 可选：脱敏样本聊天（测归档/统计/猜说话人）
-npm run db:seed-lore          # 可选：星图样本
 npm run dev
 ```
 

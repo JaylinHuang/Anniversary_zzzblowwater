@@ -1,3 +1,4 @@
+import { PageStage } from "@/components/fx/PageStage";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getDb, rowFrom, rowsFrom } from "@/lib/db";
 import { wishDailyLimit } from "@/lib/constants";
@@ -58,11 +59,25 @@ export default async function WishesPage() {
     : 0;
 
   return (
-    <div>
-      <h1 className="brand-font text-3xl text-[var(--cyan)]">祝福墙</h1>
-      <p className="mt-2 text-sm text-[var(--fog)]">
-        公开祝福，或投一封给未来的时间胶囊。
-      </p>
+    <PageStage
+      code="HDD-05"
+      channel="WISHES"
+      title="祝福墙"
+      lede="公开祝福，或投一封给未来的时间胶囊。"
+      rail={
+        <div className="page-index">
+          <p className="eyebrow">TODAY</p>
+          <p className="mt-2 text-sm text-[var(--fog)]">
+            还能贴{" "}
+            <span className="text-[var(--cyan)]">{wishRemaining(limit, used)}</span>{" "}
+            / {limit} 条
+          </p>
+          <p className="mt-2 text-xs text-[var(--fog)]">
+            墙上 {wishes.length} 条 · 胶囊 {capsules.length} 封
+          </p>
+        </div>
+      }
+    >
       <WishClient
         wishes={wishes}
         capsules={capsules}
@@ -71,6 +86,6 @@ export default async function WishesPage() {
         remaining={wishRemaining(limit, used)}
         dailyLimit={limit}
       />
-    </div>
+    </PageStage>
   );
 }

@@ -1,12 +1,5 @@
-import { desensitize } from "@/lib/desensitize";
 import { getDb, rowFrom, withDb } from "@/lib/db";
-import {
-  extractPlainText,
-  formatSender,
-  formatSentAt,
-  shouldAcceptGroup,
-  type OneBotIncoming,
-} from "@/lib/onebot-parse";
+import type { OneBotIncoming } from "@/lib/onebot-parse";
 
 export type { OneBotIncoming };
 export {
@@ -69,69 +62,8 @@ export async function ingestGroupMessage(payload: OneBotIncoming): Promise<{
   skipped?: string;
   id?: number;
 }> {
-  if (payload.post_type !== "message" || payload.message_type !== "group") {
-    return { ok: true, skipped: "not_group_message" };
-  }
-
-  const allowedGroup = configuredGroupId();
-  if (!shouldAcceptGroup(payload.group_id, allowedGroup)) {
-    return { ok: true, skipped: "group_mismatch" };
-  }
-
-  const raw = extractPlainText(payload).trim();
-  if (!raw) return { ok: true, skipped: "empty" };
-
-  const sourceMsgId =
-    payload.message_id != null ? String(payload.message_id) : null;
-  const sender = formatSender(payload);
-  const sentAt = formatSentAt(payload.time);
-  const content = desensitize(raw);
-  const batchId = await ensureLiveBatch();
-  const qq =
-    payload.user_id != null && String(payload.user_id).match(/^\d{5,}$/)
-      ? String(payload.user_id)
-      : null;
-
-  const id = await withDb((db) => {
-    if (sourceMsgId) {
-      const dup = rowFrom<{ id: number }>(
-        db,
-        `SELECT id FROM chat_messages WHERE source_msg_id = ? LIMIT 1`,
-        [sourceMsgId],
-      );
-      if (dup) return dup.id;
-    }
-    db.run(
-      `INSERT INTO chat_messages (batch_id, sender, qq_number, sent_at, content, content_raw, is_quote, source_msg_id)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
-      [batchId, sender, qq, sentAt, content, raw, sourceMsgId],
-    );
-    db.run(
-      `UPDATE import_batches
-       SET message_count = message_count + 1,
-           time_start = COALESCE(time_start, ?),
-           time_end = ?
-       WHERE id = ?`,
-      [sentAt, sentAt, batchId],
-    );
-    const row = rowFrom<{ id: number }>(
-      db,
-      `SELECT id FROM chat_messages ORDER BY id DESC LIMIT 1`,
-    );
-    return row!.id;
-  });
-
-  // 若该 QQ 已绑定 Agent，刷新其实时语料计数
-  if (qq) {
-    try {
-      const { bumpAgentSourceCount } = await import("@/lib/roster");
-      await bumpAgentSourceCount(qq);
-    } catch {
-      /* 忽略 */
-    }
-  }
-
-  return { ok: true, id };
+  const { stageGroupMessage } = await import("@/lib/daily-flush");
+  return stageGroupMessage(payload, configuredGroupId());
 }
 
 export async function getLiveSyncStatus() {

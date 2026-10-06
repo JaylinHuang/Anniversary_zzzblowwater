@@ -1,8 +1,10 @@
+import { PageStage } from "@/components/fx/PageStage";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 import { getFeatureFlags } from "@/lib/modules";
 import { getDb, rowFrom, rowsFrom } from "@/lib/db";
 import { MODULE_META, type ModuleKey } from "@/lib/constants";
 import { getLiveSyncStatus } from "@/lib/onebot";
+import { getInboxStatus } from "@/lib/daily-flush";
 import { hasDbPassphrase } from "@/lib/passphrase";
 import { getSetupStatus } from "@/lib/setup-status";
 import { isPollOpen } from "@/lib/poll-rules";
@@ -36,6 +38,7 @@ export default async function AdminPage() {
   }));
 
   const sync = await getLiveSyncStatus();
+  const inbox = await getInboxStatus();
   const setup = await getSetupStatus();
   const h = await headers();
   const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
@@ -85,11 +88,12 @@ export default async function AdminPage() {
   });
 
   return (
-    <div>
-      <h1 className="brand-font text-3xl text-[var(--cyan)]">管理后台</h1>
-      <p className="mt-2 text-sm text-[var(--fog)]">
-        模块开关、统计隐私、投票明细、机器人实时同步。
-      </p>
+    <PageStage
+      code="HDD-ADM"
+      channel="ADMIN"
+      title="管理后台"
+        lede="模块开关、统计隐私、投票明细、群消息每天凌晨更新。"
+    >
       <AdminClient
         modules={modules}
         statsPublic={statsPublic}
@@ -101,6 +105,8 @@ export default async function AdminPage() {
           configured: sync.configured,
           groupId: sync.groupId,
           webhookUrl,
+          pending: inbox.pending,
+          lastFlushAt: inbox.lastFlushAt,
           batch: sync.batch
             ? {
                 id: sync.batch.id,
@@ -112,6 +118,6 @@ export default async function AdminPage() {
             : null,
         }}
       />
-    </div>
+    </PageStage>
   );
 }

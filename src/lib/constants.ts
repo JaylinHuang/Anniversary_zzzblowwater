@@ -83,7 +83,6 @@ export const MODULE_KEYS = [
   "party-games",
   "events-hub",
   "media-gallery",
-  "lore-constellation",
   "member-agents",
 ] as const;
 
@@ -132,11 +131,6 @@ export const MODULE_META: Record<
     label: "Meme 馆",
     href: "/gallery",
     blurb: "截图与表情包",
-  },
-  "lore-constellation": {
-    label: "人物星图",
-    href: "/constellation",
-    blurb: "野史关系与轶事",
   },
   "member-agents": {
     label: "群友 Agent",

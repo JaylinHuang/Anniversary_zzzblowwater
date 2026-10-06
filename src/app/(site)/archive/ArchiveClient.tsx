@@ -40,7 +40,6 @@ export function ArchiveClient({
   const router = useRouter();
   const { success, error, confirm } = useToast();
   const [q, setQ] = useState(initialQuery);
-  const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
@@ -51,13 +50,16 @@ export function ArchiveClient({
   }
 
   async function doPreview() {
-    if (!file && !text.trim()) {
-      error("请粘贴 TXT，或选择 QCE 导出的 xlsx");
+    if (!file) {
+      error("请选择 zzz-archive JSON 文件");
       return;
     }
     setBusy(true);
     try {
-      let data: {
+      const fd = new FormData();
+      fd.append("action", "preview");
+      fd.append("file", file);
+      const data: {
         preview: {
           count: number;
           timeStart?: string | null;
@@ -65,23 +67,12 @@ export function ArchiveClient({
           format?: string;
         };
         errors?: string[];
-      };
-      if (file) {
-        const fd = new FormData();
-        fd.append("action", "preview");
-        fd.append("file", file);
-        data = await apiFetch("/api/archive", { method: "POST", body: fd });
-      } else {
-        data = await apiFetch("/api/archive", {
-          method: "POST",
-          body: JSON.stringify({ action: "preview", text }),
-        });
-      }
+      } = await apiFetch("/api/archive", { method: "POST", body: fd });
       const errHint = data.errors?.length
         ? ` · ${data.errors.slice(0, 2).join("；")}`
         : "";
       setPreview(
-        `预览：${data.preview.count} 条（${data.preview.format || "txt"}），${data.preview.timeStart || "?"} ~ ${data.preview.timeEnd || "?"}${errHint}`,
+        `预览：${data.preview.count} 条（json），${data.preview.timeStart || "?"} ~ ${data.preview.timeEnd || "?"}${errHint}`,
       );
       success("预览完成");
     } catch (e) {
@@ -94,35 +85,24 @@ export function ArchiveClient({
   }
 
   async function doCommit() {
-    if (!file && !text.trim()) {
-      error("请粘贴 TXT，或选择 QCE 导出的 xlsx");
+    if (!file) {
+      error("请选择 zzz-archive JSON 文件");
       return;
     }
     const ok = await confirm({
       title: "确认入库",
-      message: file
-        ? `将导入「${file.name}」。大文件可能需要数分钟，请勿关闭页面。`
-        : "将把当前粘贴内容写入归档，确认继续？",
+      message: `将导入「${file.name}」。大文件可能需要数分钟，请勿关闭页面。`,
     });
     if (!ok) return;
     setBusy(true);
     try {
-      let data: { count: number };
-      if (file) {
-        const fd = new FormData();
-        fd.append("action", "commit");
-        fd.append("file", file);
-        data = await apiFetch("/api/archive", { method: "POST", body: fd });
-      } else {
-        data = await apiFetch("/api/archive", {
-          method: "POST",
-          body: JSON.stringify({
-            action: "commit",
-            text,
-            filename: "qq-export.txt",
-          }),
-        });
-      }
+      const fd = new FormData();
+      fd.append("action", "commit");
+      fd.append("file", file);
+      const data: { count: number } = await apiFetch("/api/archive", {
+        method: "POST",
+        body: fd,
+      });
       setPreview(`已导入 ${data.count} 条`);
       success(`已导入 ${data.count} 条`);
       setFile(null);
@@ -169,6 +149,7 @@ export function ArchiveClient({
 
   return (
     <div className="mt-6 space-y-6">
+      <h2 className="stage-sec">检索</h2>
       <form onSubmit={search} className="flex gap-2">
         <input
           className="input"
@@ -206,16 +187,16 @@ export function ArchiveClient({
 
       {canImport ? (
         <div className="panel rounded-2xl p-5">
-          <h2 className="text-lg text-[var(--amber)]">管理员导入</h2>
+          <h2 className="stage-sec">管理员导入</h2>
           <p className="mt-1 text-xs text-[var(--fog)]">
-            支持 QQ TXT，或 QCE 导出的 xlsx（优先读「聊天记录」表；仅入库文本/回复，跳过撤回与系统消息）。
+            上传 zzz-archive JSON（文本与回复；转换时已去掉撤回和系统消息）。
           </p>
           <label className="mt-3 block text-sm text-[var(--fog)]">
-            上传 xlsx
+            上传 JSON
             <input
               className="input mt-2"
               type="file"
-              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept=".json,application/json"
               disabled={busy}
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
@@ -225,13 +206,6 @@ export function ArchiveClient({
               已选：{file.name}（{(file.size / 1024 / 1024).toFixed(1)} MB）
             </p>
           ) : null}
-          <textarea
-            className="input mt-3 min-h-40 font-mono text-xs"
-            placeholder="或粘贴 QQ 导出的 TXT…"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            disabled={busy || !!file}
-          />
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               className="btn btn-ghost"
@@ -284,7 +258,8 @@ export function ArchiveClient({
         </div>
       ) : null}
 
-      <div className="space-y-3">
+      <h2 className="stage-sec">检索结果</h2>
+      <div className="grid gap-3 md:grid-cols-2">
         {initialMessages.map((m) => (
           <article key={m.id} className="panel rounded-xl p-4">
             <div className="flex items-center justify-between gap-2 text-xs text-[var(--fog)]">

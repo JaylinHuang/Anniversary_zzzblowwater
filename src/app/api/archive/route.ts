@@ -3,10 +3,8 @@ import { requireAdmin, requireModerator, requireUser } from "@/lib/auth";
 import { assertModuleEnabled } from "@/lib/modules";
 import {
   commitMessages,
-  messagesFromTxt,
-  messagesFromXlsx,
-  previewFromTxt,
-  previewFromXlsx,
+  messagesFromJson,
+  previewFromJson,
 } from "@/lib/archive-import";
 import { escapeLikePattern } from "@/lib/capsule-rules";
 import { getDb, rowsFrom, withDb } from "@/lib/db";
@@ -44,6 +42,23 @@ export async function GET(req: Request) {
   }
 }
 
+/** 只接受 zzz-archive JSON，拒绝 xlsx / TXT */
+function readArchiveJson(
+  fileBuf?: Buffer,
+  fileName?: string,
+  text?: string,
+): string {
+  if (fileBuf) {
+    const name = (fileName || "").toLowerCase();
+    if (name && !name.endsWith(".json")) {
+      throw new Error("请上传 zzz-archive JSON 文件");
+    }
+    return fileBuf.toString("utf8");
+  }
+  if (text?.trim()) return text;
+  throw new Error("请上传 zzz-archive JSON 文件");
+}
+
 async function parseBody(req: Request): Promise<{
   action: string;
   text?: string;
@@ -63,7 +78,7 @@ async function parseBody(req: Request): Promise<{
     let fileName: string | undefined;
     if (file instanceof File && file.size > 0) {
       fileBuf = Buffer.from(await file.arrayBuffer());
-      fileName = file.name || "import.xlsx";
+      fileName = file.name || "import.json";
     }
     return {
       action,
@@ -101,14 +116,9 @@ export async function POST(req: Request) {
     const action = body.action;
 
     if (action === "preview") {
-      if (body.fileBuf) {
-        const preview = previewFromXlsx(body.fileBuf);
-        return NextResponse.json({
-          preview,
-          errors: preview.errors,
-        });
-      }
-      const preview = previewFromTxt(body.text || "");
+      const raw = readArchiveJson(body.fileBuf, body.fileName, body.text);
+      const full = previewFromJson(raw);
+      const { sample: _sample, ...preview } = full;
       return NextResponse.json({
         preview,
         errors: preview.errors,
@@ -116,15 +126,9 @@ export async function POST(req: Request) {
     }
 
     if (action === "commit") {
-      let messages;
-      let filename = body.filename || "import.txt";
-      if (body.fileBuf) {
-        messages = messagesFromXlsx(body.fileBuf);
-        filename = body.fileName || body.filename || "qce-export.xlsx";
-      } else {
-        messages = messagesFromTxt(body.text || "");
-        filename = body.filename || "qq-export.txt";
-      }
+      const raw = readArchiveJson(body.fileBuf, body.fileName, body.text);
+      const messages = messagesFromJson(raw);
+      const filename = body.fileName || body.filename || "archive.json";
       const result = await commitMessages({
         messages,
         filename,

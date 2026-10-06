@@ -1,3 +1,4 @@
+import { PageStage } from "@/components/fx/PageStage";
 import { assertModuleEnabled } from "@/lib/modules";
 import { getDb, rowsFrom } from "@/lib/db";
 import { canModerate, getSessionUser } from "@/lib/auth";
@@ -70,9 +71,20 @@ export default async function EventsPage() {
   });
 
   return (
-    <div>
-      <h1 className="brand-font text-3xl text-[var(--cyan)]">活动中枢</h1>
-      <p className="mt-2 text-sm text-[var(--fog)]">公告、报名、投票。</p>
+    <PageStage
+      code="HDD-07"
+      channel="EVENTS"
+      title="活动中枢"
+      lede="公告、报名、投票。"
+      rail={
+        <div className="page-index">
+          <p className="eyebrow">BOARD</p>
+          <p className="mt-2 text-sm text-[var(--fog)]">
+            活动 {eventsView.length} · 投票 {polls.length}
+          </p>
+        </div>
+      }
+    >
       {featured ? (
         <div className="panel mt-6 rounded-2xl p-5">
           <p className="text-xs tracking-[0.2em] text-[var(--amber)]">焦点活动</p>
@@ -91,6 +103,6 @@ export default async function EventsPage() {
         polls={polls}
         canModerate={!!user && canModerate(user.role)}
       />
-    </div>
+    </PageStage>
   );
 }

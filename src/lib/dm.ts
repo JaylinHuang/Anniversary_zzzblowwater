@@ -1,18 +1,9 @@
-import {
-  agentDmDailyLimit,
-  agentDriftEveryNTurns,
-  GROUP_NAME,
-} from "@/lib/constants";
+import { agentDmDailyLimit } from "@/lib/constants";
 import { countUserDmTurnsTodaySync } from "@/lib/dm-limit";
 import { todayKey } from "@/lib/date-key";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
-import { chatCompletion, isLlmConfigured } from "@/lib/llm";
-import { formatRagBlock, retrieveRagForQq } from "@/lib/rag";
-import {
-  getAgentById,
-  getDrift,
-  maybeUpdateDrift,
-} from "@/lib/roster";
+import { runMemberCrew } from "@/lib/agent-crew";
+import { getAgentById, listRosterAgents, listUserSenderNames } from "@/lib/roster";
 
 export async function getOrCreateActiveSession(userId: number, agentId: number) {
   const db = await getDb();
@@ -49,34 +40,6 @@ export async function startNewSession(userId: number, agentId: number) {
       [userId, agentId],
     );
   });
-  // 结束旧会话时强制更新一次 Drift
-  const agent = await getAgentById(agentId);
-  if (agent) {
-    const db = await getDb();
-    const last = rowFrom<{ id: number }>(
-      db,
-      `SELECT id FROM agent_dm_sessions
-       WHERE user_id = ? AND agent_id = ? ORDER BY id DESC LIMIT 1`,
-      [userId, agentId],
-    );
-    if (last) {
-      const lines = rowsFrom<{ role: string; content: string }>(
-        db,
-        `SELECT role, content FROM agent_dm_messages
-         WHERE session_id = ? AND user_id = ? ORDER BY id ASC`,
-        [last.id, userId],
-      );
-      await maybeUpdateDrift({
-        userId,
-        agentId,
-        displayName: agent.display_name,
-        sessionLines: lines,
-        force: true,
-        turnCount: 0,
-        everyN: 1,
-      });
-    }
-  }
   return getOrCreateActiveSession(userId, agentId);
 }
 
@@ -165,47 +128,32 @@ export async function sendDm(params: {
   /** 生成回复并落库助手消息；任一步抛错都由外层撤回用户消息 */
   async function generateAndStoreReply() {
     const history = await listSessionMessages(params.userId, session.id);
-    const drift =
-      (await getDrift(params.userId, params.agentId))?.drift_notes || "";
-
-    let ragBlock = "";
-    try {
-      const hits = await retrieveRagForQq(agent!.qq, text);
-      ragBlock = formatRagBlock(hits);
-    } catch {
-      /* 向量检索失败时降级为纯人设对话 */
-    }
-
-    const system = [
-      agent!.system_prompt,
-      `你所属的群是「${GROUP_NAME}」。`,
-      `你的显示名是「${agent!.display_name}」。只输出要说的话，不要带名字前缀。`,
-      drift
-        ? `以下是你对该用户的私有印象（Drift，仅此用户可见）：\n${drift}`
-        : "",
-      ragBlock,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    let reply: string;
-    if (!isLlmConfigured()) {
-      reply = `（未配置大模型）以「${agent!.display_name}」口吻：收到啦——「${text.slice(0, 40)}」。配置 LLM_API_KEY 后可在 ${GROUP_NAME} 里正经对线。`;
-    } else {
-      reply = await chatCompletion(
-        [
-          { role: "system", content: system },
-          ...history.slice(0, -1).slice(-16).map((h) => ({
-            role: (h.role === "user" ? "user" : "assistant") as
-              | "user"
-              | "assistant",
-            content: h.content,
-          })),
-          { role: "user", content: text },
-        ],
-        { temperature: 0.9, maxTokens: 500 },
-      );
-    }
+    const db = await getDb();
+    const speaker = rowFrom<{ display_name: string; qq_number: string | null }>(
+      db,
+      `SELECT display_name, qq_number FROM users WHERE id = ?`,
+      [params.userId],
+    );
+    const userName = speaker?.display_name || `群友#${params.userId}`;
+    const userQq = speaker?.qq_number?.trim() || null;
+    const userAliases = await listUserSenderNames(userQq, userName);
+    const roster = await listRosterAgents();
+    const reply = await runMemberCrew({
+      agent: agent!,
+      userId: params.userId,
+      userName,
+      userQq,
+      userAliases,
+      userText: text,
+      history: history.slice(0, -1),
+      peers: roster
+        .filter((item) => item.id !== agent!.id)
+        .map((item) => ({
+          id: item.id,
+          name: item.display_name,
+          qq: item.qq,
+        })),
+    });
 
     const turnCount = await withDb((db) => {
       db.run(
@@ -227,23 +175,6 @@ export async function sendDm(params: {
     });
 
     return { history, reply, turnCount };
-  }
-
-  // 此时这一轮已成功落库；印象漂移只是附带更新，失败不应让前端误判为发送失败
-  try {
-    await maybeUpdateDrift({
-      userId: params.userId,
-      agentId: params.agentId,
-      displayName: agent.display_name,
-      sessionLines: [
-        ...history.map((h) => ({ role: h.role, content: h.content })),
-        { role: "assistant", content: reply },
-      ],
-      turnCount,
-      everyN: agentDriftEveryNTurns(),
-    });
-  } catch {
-    /* 漂移更新失败时忽略，下一轮会再尝试 */
   }
 
   return {

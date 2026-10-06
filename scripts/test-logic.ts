@@ -494,10 +494,69 @@ async function main() {
   for (const word of ["天青色", "誓约", "格莉丝", "下雪", "睡醒", "中午", "卧室", "吃饭", "操场", "boss"]) {
     assert.ok(cleanedWords.includes(word), word);
   }
-  for (const word of ["吹水", "水群", "天青", "青色", "格莉", "莉丝", "时候", "哈哈", "zzz", "the"]) {
+  for (const word of ["吹水", "水群", "天青", "青色", "格莉", "莉丝", "时候", "哈哈", "zzz", "the", "今天打"]) {
     assert.ok(!cleanedWords.includes(word), word);
   }
   assert.ok(cleanedWords.every((word) => !word.endsWith("操") || word === "操场"));
+  const leaked = await cleanWordCloud(
+    [
+      "这个一个不是什么就是没有现在怎么可以还是",
+      "其实假来但是我的知道游戏感觉之王然后这么是我",
+      "我是群友黑水角色因为自己还有首席鉴本师",
+      "起来喜欢永雏圆头耄应该",
+      "在ZZZ吹水群里吹水，zzzblowwater",
+      "席德是新角色",
+      "今天打了boss",
+    ],
+    "zzz吹水群",
+    40,
+    ["zzzblowwater", "blowwater"],
+  );
+  const leakedWords = leaked.map((item) => item.word);
+  for (const word of [
+    "这个",
+    "一个",
+    "不是",
+    "什么",
+    "就是",
+    "没有",
+    "现在",
+    "怎么",
+    "可以",
+    "还是",
+    "其实",
+    "但是",
+    "我的",
+    "知道",
+    "然后",
+    "这么",
+    "是我",
+    "我是",
+    "因为",
+    "自己",
+    "还有",
+    "起来",
+    "应该",
+    "假来",
+    "吹水",
+    "水群",
+    "吹水群",
+    "zzz",
+    "zzzblowwater",
+    "blowwater",
+    "席鉴",
+    "鉴本",
+    "本师",
+    "雏圆",
+    "圆头",
+    "头耄",
+  ]) {
+    assert.ok(!leakedWords.includes(word), word);
+  }
+  for (const word of ["席德", "新角色", "永雏圆头耄", "游戏", "喜欢", "boss"]) {
+    assert.ok(leakedWords.includes(word), word);
+  }
+  assert.ok(leakedWords.some((word) => [...word].length > 4));
   const bots = new Set(["10001"]);
   assert.strictEqual(
     isBotChat({ sender: "伊蕾娜", content: "今日老婆" }, bots),
@@ -515,7 +574,7 @@ async function main() {
     isBotChat({ sender: "甲", content: "天青色的誓约" }, bots),
     false,
   );
-  ok("深夜指数与双字词频");
+  ok("深夜指数与词云清洗");
 
   const plain = extractPlainText({
     raw_message: "",

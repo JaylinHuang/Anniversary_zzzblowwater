@@ -170,7 +170,7 @@ export default async function StatsPage() {
               what={
                 noMessages
                   ? "还没有任何群聊消息，暂时提不出高频词。"
-                  : "已有群聊消息，但正文里没有连续的汉字，暂时提不出高频词。"
+                  : "已有群聊消息，但清洗后没有能放进词云的词。"
               }
             />
           ) : (

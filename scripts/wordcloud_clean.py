@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
-"""词云清洗。
+"""词云清洗的命令行副本。网站统计不跑这个文件。
 
-从群聊正文里收出 2～4 个汉字，以及 2～16 个字母的英文词。
-先挖掉群名，再按虚词切开。整段就是词就整段计数，
-不再用双字滑动窗口把「天青色」拆成「天青 / 青色」。
-超过 4 个字的汉字片段交给 jieba；没有 jieba 时只留更长的片段，并丢掉被包住的碎片。
-英文按大小写合并，虚词不计入。
+正式规则在 src/lib/wordcloud-rules.ts，由 Node 直接执行。
+生产镜像里没有 Python，以前网页调用失败会退回双字滑动窗口，
+虚词、群名和人名碎片都会漏进词云。
+
+这里同样：中英文都收，汉字不限 2～4 个字，先挖掉群名，再按虚词切开，
+不再做双字或三四字滑动。超过 4 个字的片段在网站里还会按常用词表切开，
+命令行这里整段保留。
 """
 
 from __future__ import annotations
 
 import json
-import logging
 import re
 import sys
 
@@ -86,30 +87,21 @@ STOP = {
     "看看",
     "东西",
     "地方",
-    "不是",
-    "怎么",
-    "什么",
+    "其实",
+    "应该",
+    "可能",
+    "好像",
+    "真是",
+    "难道",
+    "到底",
+    "而且",
+    "或者",
+    "一起",
+    "一直",
+    "一样",
+    "一般",
+    "于是",
 }
-
-_jieba = None
-
-
-def load_jieba():
-    global _jieba
-    if _jieba is False:
-        return None
-    if _jieba is not None:
-        return _jieba
-    try:
-        import jieba
-
-        jieba.setLogLevel(logging.ERROR)
-        _jieba = jieba
-    except ImportError:
-        _jieba = False
-        return None
-    return _jieba
-
 
 def group_pieces(name: str) -> set[str]:
     """群名本身，以及其中任意连续汉字，避免「吹水」「水群」再被算进去。"""
@@ -181,22 +173,14 @@ def split_tic(chunk: str) -> list[str]:
 
 
 def pieces_of(chunk: str) -> list[str]:
-    if 2 <= len(chunk) <= 4:
+    # 整段留下。不按 2/3/4 字滑动，也不截断到 4 个字
+    if len(chunk) >= 2:
         return [chunk]
-    jieba = load_jieba()
-    if jieba is not None:
-        return [w for w in jieba.lcut(chunk) if 2 <= len(w) <= 4]
-    grams: list[str] = []
-    for n in (4, 3):
-        if len(chunk) < n:
-            continue
-        for i in range(0, len(chunk) - n + 1):
-            grams.append(chunk[i : i + n])
-    return grams
+    return []
 
 
 def keep(word: str, pieces: set[str]) -> bool:
-    if not re.fullmatch(r"[\u4e00-\u9fff]{2,4}", word):
+    if not re.fullmatch(r"[\u4e00-\u9fff]{2,24}", word):
         return False
     if word in STOP or word in pieces:
         return False
@@ -208,9 +192,9 @@ def keep(word: str, pieces: set[str]) -> bool:
 def latin_words(text: str) -> list[str]:
     """整段英文按词收下，大小写并成小写。不拆成字母碎片。"""
     words: list[str] = []
-    for raw in re.findall(r"[A-Za-z][A-Za-z']{1,15}", text):
+    for raw in re.findall(r"[A-Za-z][A-Za-z']{1,31}", text):
         word = raw.replace("'", "").lower()
-        if 2 <= len(word) <= 16:
+        if 2 <= len(word) <= 32:
             words.append(word)
     return words
 

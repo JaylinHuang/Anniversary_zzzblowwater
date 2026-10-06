@@ -31,7 +31,12 @@ export async function GET(
           : ext === ".webp"
             ? "image/webp"
             : "application/octet-stream";
-  return new NextResponse(buf, {
-    headers: { "Content-Type": type, "Cache-Control": "public, max-age=86400" },
+  // 用 Uint8Array 返回，避免生产环境把图片字节当成文本弄花
+  return new NextResponse(new Uint8Array(buf), {
+    headers: {
+      "Content-Type": type,
+      "Content-Length": String(buf.length),
+      "Cache-Control": "private, max-age=86400",
+    },
   });
 }

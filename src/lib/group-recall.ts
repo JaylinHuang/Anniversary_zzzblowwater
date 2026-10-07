@@ -6,6 +6,14 @@ import { isBotGroupName } from "@/lib/bot-chat";
 import { escapeLikePattern } from "@/lib/capsule-rules";
 import { isAgentCorpusText } from "@/lib/chat-parser";
 import { getDb, rowsFrom } from "@/lib/db";
+import {
+  formatWhen,
+  judgeTimeline,
+  resolveSubject,
+  searchNeedles,
+  topicNeedles,
+  type DatedLine,
+} from "@/lib/fact-timeline";
 
 export type GroupSpeaker = { name: string; qq: string };
 
@@ -116,11 +124,14 @@ export function formatRecalledLine(params: {
   qq: string;
   content: string;
   selfQq: string;
+  sentAt?: string | null;
 }): string {
   const body = cleanLine(params.content);
-  if (sameDigits(params.qq, params.selfQq)) return `你自己说过：${body}`;
+  const when = formatWhen(params.sentAt || null);
+  const at = when ? `在 ${when} ` : "";
+  if (sameDigits(params.qq, params.selfQq)) return `你自己${at}说过：${body}`;
   const name = params.sender.trim() || "群友";
-  return `「${name}」说过：${body}`;
+  return `「${name}」${at}说过：${body}`;
 }
 
 /** 拼进这一轮系统提示。没有对上的人就返回空，避免再写一句「群里没有」 */
@@ -131,10 +142,16 @@ export function formatGroupRecallBlock(names: string[], lines: string[]): string
     `群聊里和${who}有关的发言（只来自群聊归档）：`,
     ...lines.map((line, index) => `${index + 1}. ${line}`),
     "你泡在这个群里，对这些人的印象要对上这些发言。别人说的是你听见的，不是你的经历。上面没有的战绩、水平和隐私不要编。不要用网站上的群友名片。",
+    "发言若带了时间，互相矛盾或和人设矛盾时，以时间更晚的那条为准。问的是你自己，就用你的口气按这条回答，不要说成把人记混了。",
   ].join("\n");
 }
 
-type LineRow = { sender: string; qq_number: string; content: string };
+type LineRow = {
+  sender: string;
+  qq_number: string;
+  content: string;
+  sent_at?: string | null;
+};
 
 function keepLines(rows: LineRow[], selfQq: string, limit: number): string[] {
   const out: string[] = [];
@@ -157,6 +174,7 @@ function keepLines(rows: LineRow[], selfQq: string, limit: number): string[] {
         qq: row.qq_number || "",
         content: body,
         selfQq,
+        sentAt: row.sent_at || null,
       }),
     );
     if (out.length >= limit) break;
@@ -189,7 +207,8 @@ async function linesByQq(qq: string, limit: number): Promise<LineRow[]> {
   const db = await getDb();
   return rowsFrom<LineRow>(
     db,
-    `SELECT m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number, m.content AS content
+    `SELECT m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number,
+            m.content AS content, m.sent_at AS sent_at
      FROM chat_messages m
      JOIN import_batches b ON b.id = m.batch_id
      WHERE b.status = 'active' AND m.qq_number = ?
@@ -205,7 +224,8 @@ async function linesMentioning(name: string, exceptQq: string, limit: number): P
   const db = await getDb();
   return rowsFrom<LineRow>(
     db,
-    `SELECT m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number, m.content AS content
+    `SELECT m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number,
+            m.content AS content, m.sent_at AS sent_at
      FROM chat_messages m
      JOIN import_batches b ON b.id = m.batch_id
      WHERE b.status = 'active'
@@ -217,18 +237,172 @@ async function linesMentioning(name: string, exceptQq: string, limit: number): P
   );
 }
 
-/** 这一轮在问哪些群友，以及能对上的发言 */
+async function aliasNames(qq: string, displayName: string): Promise<string[]> {
+  const names = new Set<string>();
+  const card = displayName.trim();
+  if (card.length >= 2 && card.length <= 16) names.add(card);
+  if (!qq) return [...names];
+  const db = await getDb();
+  for (const row of rowsFrom<{ sender: string }>(
+    db,
+    `SELECT m.sender AS sender
+     FROM chat_messages m
+     JOIN import_batches b ON b.id = m.batch_id
+     WHERE b.status = 'active' AND m.qq_number = ? AND m.sender != ''
+     GROUP BY m.sender
+     ORDER BY COUNT(*) DESC
+     LIMIT 3`,
+    [qq],
+  )) {
+    const name = String(row.sender || "").trim();
+    if (name.length >= 2 && name.length <= 16 && !isBotGroupName(name)) names.add(name);
+  }
+  return [...names].slice(0, 4);
+}
+
+async function topicSlice(
+  qq: string,
+  names: string[],
+  needles: string[],
+  order: "ASC" | "DESC",
+  limit: number,
+): Promise<DatedLine[]> {
+  const who: string[] = [];
+  const params: string[] = [];
+  if (qq) {
+    who.push("m.qq_number = ?");
+    params.push(qq);
+  }
+  for (const name of names) {
+    if (name.length < 2) continue;
+    who.push("m.content LIKE ? ESCAPE '\\'");
+    params.push(`%${escapeLikePattern(name)}%`);
+  }
+  if (!who.length || !needles.length) return [];
+  const topic = needles.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ");
+  const topicParams = needles.map((needle) => `%${escapeLikePattern(needle)}%`);
+  const db = await getDb();
+  return rowsFrom<{
+    id: number;
+    sender: string;
+    qq_number: string;
+    content: string;
+    sent_at: string | null;
+  }>(
+    db,
+    `SELECT m.id AS id, m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number,
+            m.content AS content, m.sent_at AS sent_at
+     FROM chat_messages m
+     JOIN import_batches b ON b.id = m.batch_id
+     WHERE b.status = 'active'
+       AND (${who.join(" OR ")})
+       AND (${topic})
+     ORDER BY m.id ${order}
+     LIMIT ?`,
+    [...params, ...topicParams, limit],
+  )
+    .filter((row) => !isBotGroupName(row.sender) && isAgentCorpusText(row.content))
+    .map((row) => ({
+      id: Number(row.id),
+      sender: String(row.sender || ""),
+      qq: String(row.qq_number || ""),
+      content: String(row.content || ""),
+      sentAt: row.sent_at == null ? null : String(row.sent_at),
+    }));
+}
+
+/** 整段归档里和这个话题有关的发言。两头都取，才能对上新旧两个时间 */
+async function linesAboutTopic(
+  qq: string,
+  names: string[],
+  needles: string[],
+): Promise<DatedLine[]> {
+  const [newer, older] = await Promise.all([
+    topicSlice(qq, names, needles, "DESC", 12),
+    topicSlice(qq, names, needles, "ASC", 8),
+  ]);
+  const merged: DatedLine[] = [];
+  for (const line of [...newer, ...older]) {
+    if (!merged.some((item) => item.id === line.id)) merged.push(line);
+  }
+  return merged;
+}
+
+/** 这一轮在问哪些群友，以及能对上的发言。问自己时同样去整段群聊里找 */
 export async function collectGroupRecall(params: {
   selfQq: string;
+  selfName?: string;
   talk: string;
+  /** 只用来判断这一问在问谁、问什么。不传就用 talk */
+  focus?: string;
+  persona?: string;
   limit?: number;
-}): Promise<{ names: string[]; lines: string[] }> {
+}): Promise<{ names: string[]; lines: string[]; personaPatch: string | null }> {
   const speakers = await listGroupSpeakers();
-  const matched = matchSpeakersInTalk(params.talk, speakers);
+  const current = (params.focus || params.talk).trim();
+  const matchedNow = matchSpeakersInTalk(current, speakers);
+  const matchedTalk = matchSpeakersInTalk(params.talk, speakers);
+  const selfName = (params.selfName || "").trim();
+  let subject = resolveSubject(
+    current,
+    selfName,
+    matchedNow.map((speaker) => speaker.name),
+  );
+  let matched = matchedNow;
+  if (subject === "none") {
+    subject = resolveSubject(
+      params.talk,
+      selfName,
+      matchedTalk.map((speaker) => speaker.name),
+    );
+    matched = matchedTalk;
+  }
+  const ignore = [
+    selfName,
+    ...matched.map((speaker) => speaker.name),
+  ].filter(Boolean);
+  const needles = topicNeedles(current, ignore);
+  if (needles.length && subject !== "none") {
+    const other = matched.find((speaker) => speaker.name !== selfName);
+    const target =
+      subject === "self"
+        ? { qq: params.selfQq, name: selfName || "你" }
+        : { qq: other?.qq || "", name: other?.name || "" };
+    const aliases =
+      subject === "self"
+        ? await aliasNames(params.selfQq, selfName)
+        : target.name
+          ? [target.name]
+          : [];
+    const dated = await linesAboutTopic(target.qq, aliases, searchNeedles(needles));
+    if (dated.length) {
+      const verdict = judgeTimeline({
+        persona: params.persona || "",
+        lines: dated,
+        alternatives: needles,
+      });
+      const lines = verdict.show.map((line) =>
+        formatRecalledLine({
+          sender: line.sender,
+          qq: line.qq,
+          content: line.content,
+          selfQq: params.selfQq,
+          sentAt: line.sentAt,
+        }),
+      );
+      return {
+        names: [target.name].filter(Boolean),
+        lines,
+        personaPatch: verdict.patch,
+      };
+    }
+  }
   const nicknames = recallNameTokens(params.talk).filter(
     (token) => !matched.some((speaker) => speaker.name.includes(token)),
   );
-  if (!matched.length && !nicknames.length) return { names: [], lines: [] };
+  if (!matched.length && !nicknames.length) {
+    return { names: [], lines: [], personaPatch: null };
+  }
   const limit = params.limit ?? 8;
   const names = [
     ...matched.map((speaker) => speaker.name),
@@ -261,7 +435,7 @@ export async function collectGroupRecall(params: {
       if (lines.length >= limit) break;
     }
   }
-  return { names, lines: lines.slice(0, limit) };
+  return { names, lines: lines.slice(0, limit), personaPatch: null };
 }
 
 /** 重炼人设时看一眼别人怎么提到他，不读网站名片 */

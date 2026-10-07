@@ -3,6 +3,7 @@ import { mentionSamplesForQq } from "@/lib/group-recall";
 import { agentPersonaSampleSize, GROUP_NAME } from "@/lib/constants";
 import { isAgentCorpusText } from "@/lib/chat-parser";
 import { loadSpreadMessages } from "@/lib/corpus-sample";
+import { applyPersonaPatch, extractPersonaPatch } from "@/lib/fact-timeline";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
 import {
   chatCompletion,
@@ -397,6 +398,10 @@ export async function rebuildAgentPersona(id: number) {
     agent.display_name,
     textCount,
   );
+  const kept = extractPersonaPatch(agent.system_prompt);
+  const systemPrompt = kept
+    ? applyPersonaPatch(persona.systemPrompt, kept)
+    : persona.systemPrompt;
   await withDb((db) => {
     db.run(
       `UPDATE agent_personas SET
@@ -406,7 +411,7 @@ export async function rebuildAgentPersona(id: number) {
       [
         JSON.stringify(persona.styleTags),
         persona.summary,
-        persona.systemPrompt,
+        systemPrompt,
         JSON.stringify(persona.sampleQuotes),
         persona.sourceMsgCount,
         id,
@@ -414,6 +419,16 @@ export async function rebuildAgentPersona(id: number) {
     );
   });
   return { ok: true as const, sourceMsgCount: textCount };
+}
+
+/** 只改人设正文里的近况段，不重读全部发言 */
+export async function saveAgentPersonaPrompt(id: number, systemPrompt: string) {
+  await withDb((db) => {
+    db.run(
+      `UPDATE agent_personas SET system_prompt = ?, updated_at = datetime('now') WHERE id = ?`,
+      [systemPrompt, id],
+    );
+  });
 }
 
 export async function listRosterAgents() {

@@ -58,8 +58,9 @@ import {
 import { isAgentCorpusText } from "@/lib/chat-parser";
 import { chatCompletion, chatCompletionWithTools, isLlmConfigured } from "@/lib/llm";
 import { collectGroupRecall, formatGroupRecallBlock } from "@/lib/group-recall";
+import { applyPersonaPatch } from "@/lib/fact-timeline";
 import { retrieveRagForQq } from "@/lib/rag";
-import { listAgentGroupChat } from "@/lib/roster";
+import { listAgentGroupChat, saveAgentPersonaPrompt } from "@/lib/roster";
 import { formatSpeakStyle, loadSpeakStyle } from "@/lib/speak-stats";
 
 /** 短期记忆就是这个窗口。超过这么多条就把旧的压成长期摘要 */
@@ -92,7 +93,7 @@ const TOOL_GUIDE = [
   "你有四件工具，别的一概没有：",
   "- search_memory：查你和当前这位用户之间的长期记忆。记不清就先查，不要凭空补。",
   "- remember：对面说「记住」「请记住」「别忘了」时，把那条事实写下来。同一件事改口了，用它覆盖，不要让两种说法同时存在；不同的事（比如对花生过敏和不吃香菜）各记各的，不要互相覆盖。",
-  "- search_group_lines：在整个群聊里找某个人或某件事。结果会写明是谁说的，不只翻你自己的话，也不要整段贴进回复。",
+  "- search_group_lines：在整个群聊里找某个人或某件事，问你自己时也要查。结果会写明时间和是谁说的。和人设或更早的发言矛盾时，以时间更晚的那条为准，不要整段贴进回复。",
   "- working_note：记这一轮的中间结论，只在这一轮有效。",
   "工具结果会回到这一轮，你可以接着再要一步。",
   "最后一条不带工具调用的回复才是发给用户的话：那一条里不要出现工具名、调用过程或括号里的旁白。",
@@ -132,7 +133,7 @@ export function buildTurnSystemPrompt(params: {
     params.workingBlock || "",
     params.summaryNote || "",
     params.groupNote || "",
-    "这一轮怎么回：先接住对方刚说的那一句。问某个群友时，用上面群聊发言里这个人的说法形成印象，再用你的口气说出来。发言里没有的战绩和水平就说不记得。不要把别人的话当成你的经历，也不要整段粘贴。",
+    "这一轮怎么回：先接住对方刚说的那一句。问你自己或问某个群友时，用上面群聊发言里的说法和时间来回答，再用你的口气说出来。发言互相矛盾或和人设矛盾时，以时间更晚的那条为准。发言里没有的战绩和水平就说不记得。不要把别人的话当成你的经历，也不要整段粘贴。",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -163,14 +164,21 @@ export function planTurnMemory(params: {
   return draft ? { ...draft, explicit: false } : null;
 }
 
-/** 生产用的群聊检索：先在整个群里对上人名，对不上再翻这个分身自己的原话 */
+/** 生产用的群聊检索：问自己或问别人，都先在整段群聊里对话题 */
 export async function defaultGroupLines(
   qq: string,
   query: string,
   limit: number,
+  ctx?: { selfName?: string; persona?: string },
 ): Promise<string[]> {
   try {
-    const recalled = await collectGroupRecall({ selfQq: qq, talk: query, limit });
+    const recalled = await collectGroupRecall({
+      selfQq: qq,
+      selfName: ctx?.selfName,
+      talk: query,
+      persona: ctx?.persona,
+      limit,
+    });
     if (recalled.lines.length) return recalled.lines.slice(0, limit);
   } catch {
     /* 全群检索失败时退回本人发言 */
@@ -220,6 +228,8 @@ export function buildTurnPorts(params: {
   db: Database;
   agentId: number;
   agentQq: string;
+  agentName?: string;
+  persona?: string;
   userId: number;
   turnId: string;
   identified: boolean;
@@ -264,7 +274,11 @@ export function buildTurnPorts(params: {
     async searchGroupLines(query, limit) {
       const port =
         params.groupLines ||
-        ((q: string, n: number) => defaultGroupLines(params.agentQq, q, n));
+        ((q: string, n: number) =>
+          defaultGroupLines(params.agentQq, q, n, {
+            selfName: params.agentName,
+            persona: params.persona,
+          }));
       try {
         return await port(query, limit);
       } catch {
@@ -577,14 +591,35 @@ export async function runMemberTurnDetailed(params: {
       .map((line) => line.content),
     params.userText,
   ].join("\n");
-  const groupNote = deps.db
-    ? ""
-    : await collectGroupRecall({ selfQq: params.agent.qq, talk, limit: 8 })
-        .then((found) => formatGroupRecallBlock(found.names, found.lines))
-        .catch(() => "");
+  let systemPrompt = params.agent.system_prompt;
+  let groupNote = "";
+  if (!deps.db) {
+    const found = await collectGroupRecall({
+      selfQq: params.agent.qq,
+      selfName: params.agent.display_name,
+      talk,
+      focus: params.userText,
+      persona: systemPrompt,
+      limit: 8,
+    }).catch(() => ({
+      names: [] as string[],
+      lines: [] as string[],
+      personaPatch: null as string | null,
+    }));
+    if (found.personaPatch) {
+      const next = applyPersonaPatch(systemPrompt, found.personaPatch);
+      if (next !== systemPrompt) {
+        systemPrompt = next;
+        await saveAgentPersonaPrompt(params.agent.id, systemPrompt).catch(() => {
+          /* 这一轮先按较新的发言回答，写不回人设也不要打断 */
+        });
+      }
+    }
+    groupNote = formatGroupRecallBlock(found.names, found.lines);
+  }
   const system = buildTurnSystemPrompt({
     agentName: params.agent.display_name,
-    systemPrompt: params.agent.system_prompt,
+    systemPrompt,
     userName: params.userName,
     userAliases: params.userAliases,
     self,
@@ -612,6 +647,8 @@ export async function runMemberTurnDetailed(params: {
     db,
     agentId,
     agentQq: params.agent.qq,
+    agentName: params.agent.display_name,
+    persona: systemPrompt,
     userId,
     turnId,
     identified,

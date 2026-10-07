@@ -166,7 +166,7 @@ export function buildToolRegistry(): ToolDef[] {
     {
       name: "search_group_lines",
       description:
-        "在整个群聊里找某个人或某件事。返回的每条都会写明是谁说的，用来形成印象，不要整句贴成回复。",
+        "在整个群聊里找某个人或某件事，问你自己时也查。返回的每条会写明时间和是谁说的。互相矛盾时以时间更晚的那条为准，不要整句贴成回复。",
       parameters: {
         type: "object",
         properties: {

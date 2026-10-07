@@ -12,6 +12,13 @@ import { archiveFromQceExporter, parseArchiveJson } from "../src/lib/chat-json";
 import { localEmbed } from "../src/lib/local-embed";
 import { pickPersonaSamples } from "../src/lib/roster";
 import { pickSpreadIds } from "../src/lib/corpus-sample";
+import {
+  applyPersonaPatch,
+  judgeTimeline,
+  lineSupports,
+  resolveSubject,
+  topicNeedles,
+} from "../src/lib/fact-timeline";
 import { formatGroupRecallBlock, matchSpeakersInTalk, recallNameTokens } from "../src/lib/group-recall";
 import { rerankHits } from "../src/lib/rag-rerank";
 import { replyTemperature, AGENT_HARD_RULES, formatSpeakerIdentity, sameQq, correctSelfReply, correctOtherReply } from "../src/lib/agent-crew";
@@ -171,6 +178,61 @@ async function main() {
     const few = pickSpreadIds([1, 2, 3, 4, 5], 120, 40);
     assert.deepStrictEqual(few, [1, 2, 3, 4, 5]);
     ok("全年均匀抽样会留住中间，条数很少时全部留下");
+  }
+
+  {
+    assert.deepStrictEqual(topicNeedles("你现在在上高中还是初中"), ["高中", "初中"]);
+    assert.deepStrictEqual(topicNeedles("你觉得麦当劳怎么样"), ["麦当劳"]);
+    assert.strictEqual(
+      resolveSubject("你现在在上高中还是初中", "牢火", []),
+      "self",
+    );
+    assert.strictEqual(
+      resolveSubject("你觉得牢火怎么样", "厂夏", ["牢火"]),
+      "other",
+    );
+    assert.ok(lineSupports("我现在高二了", "高中"));
+    assert.ok(!lineSupports("我不是高中生", "高中"));
+    const older = {
+      id: 1,
+      sender: "牢火",
+      qq: "1",
+      content: "我还在读初三",
+      sentAt: "2024-03-01 12:00:00",
+    };
+    const newer = {
+      id: 2,
+      sender: "牢火",
+      qq: "1",
+      content: "我现在高二了",
+      sentAt: "2025-09-01 12:00:00",
+    };
+    const verdict = judgeTimeline({
+      persona: "他还在读初中，别问了。",
+      lines: [older, newer],
+      alternatives: ["高中", "初中"],
+    });
+    assert.strictEqual(verdict.newer?.id, 2);
+    assert.strictEqual(verdict.older?.id, 1);
+    assert.ok(verdict.patch?.includes("2025-09-01"));
+    assert.ok(verdict.patch?.includes("2024-03-01"));
+    const quiet = judgeTimeline({
+      persona: "喜欢开玩笑。",
+      lines: [older, newer],
+      alternatives: ["高中", "初中"],
+    });
+    assert.strictEqual(quiet.patch, null);
+    assert.strictEqual(quiet.newer?.id, 2);
+    const once = applyPersonaPatch("人设正文", verdict.patch || "");
+    const twice = applyPersonaPatch(
+      once,
+      "关于「高中 / 初中」：以 2026-01-01 00:00 的发言为准：高三了。",
+    );
+    assert.strictEqual(twice.split("【群聊近况】").length, 2);
+    assert.ok(twice.includes("高三"));
+    assert.ok(!twice.includes("初三"));
+    assert.ok(AGENT_HARD_RULES.includes("时间更晚"));
+    ok("问自己也会对上话题，矛盾时以较新的时间更新人设");
   }
 
   {

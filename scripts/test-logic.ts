@@ -17,7 +17,12 @@ import {
   normalizeFeedbackBatch,
   parseFeedbackDecision,
 } from "../src/lib/feedback";
-import { normalizeSponsorNote, sponsorImageKind } from "../src/lib/sponsor-shared";
+import {
+  formatSponsorYuan,
+  normalizeSponsorNote,
+  parseSponsorYuan,
+  sponsorImageKind,
+} from "../src/lib/sponsor-shared";
 import { openRecall, sameNeedles, sealRecall } from "../src/lib/recall-cache";
 import {
   applyPersonaPatch,
@@ -882,7 +887,12 @@ async function main() {
   );
   assert.strictEqual(sponsorImageKind(Uint8Array.from([0xff, 0xd8, 0xff, 0])), "jpeg");
   assert.strictEqual(sponsorImageKind(Uint8Array.from([0x3c, 0x68, 0x74, 0x6d, 0x6c])), null);
-  ok("赞助说明会收紧，收款码只认图片文件头");
+  assert.strictEqual(parseSponsorYuan("  ¥10.5 元 "), 1050);
+  assert.strictEqual(parseSponsorYuan("20"), 2000);
+  assert.strictEqual(formatSponsorYuan(1050), "10.50");
+  assert.throws(() => parseSponsorYuan("0"));
+  assert.throws(() => parseSponsorYuan("10.999"));
+  ok("赞助说明会收紧，收款码只认图片文件头，金额按分累计");
 
   console.log("全部逻辑用例通过");
 }

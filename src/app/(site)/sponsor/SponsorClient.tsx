@@ -4,21 +4,31 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ToastProvider";
 import { apiFetch } from "@/lib/api-client";
-import { SPONSOR_NOTE_MAX, type SponsorCard } from "@/lib/sponsor-shared";
+import {
+  formatSponsorYuan,
+  SPONSOR_GIFT_NOTE_MAX,
+  SPONSOR_NOTE_MAX,
+  type SponsorCard,
+  type SponsorEntry,
+} from "@/lib/sponsor-shared";
 
 export function SponsorClient({
   card,
   isAdmin,
   formError = "",
+  mine,
 }: {
   card: SponsorCard;
   isAdmin: boolean;
   formError?: string;
+  mine: { totalFen: number; entries: SponsorEntry[] };
 }) {
   const router = useRouter();
   const { success, error, confirm } = useToast();
   const [note, setNote] = useState(card.note);
   const [file, setFile] = useState<File | null>(null);
+  const [amount, setAmount] = useState("");
+  const [giftNote, setGiftNote] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function save(e: FormEvent) {
@@ -34,6 +44,25 @@ export function SponsorClient({
       router.refresh();
     } catch (err) {
       error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function logGift(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await apiFetch("/api/sponsor/ledger", {
+        method: "POST",
+        body: JSON.stringify({ amount, note: giftNote }),
+      });
+      success("已登记这笔赞助");
+      setAmount("");
+      setGiftNote("");
+      router.refresh();
+    } catch (err) {
+      error(err instanceof Error ? err.message : "登记失败");
     } finally {
       setBusy(false);
     }
@@ -62,7 +91,7 @@ export function SponsorClient({
       <section className="panel rounded-2xl p-5">
         <h2 className="stage-sec">微信扫码</h2>
         <p className="mt-2 text-sm text-[var(--fog)]">
-          打开微信，点右上角扫一扫。金额在微信里自己填。钱直接进管理员的微信，本站不经手，也不记录你付了多少。
+          打开微信，点右上角扫一扫。钱直接进管理员的微信。转完后在下面登记金额，后台会按人累计。
         </p>
         <div className="mx-auto mt-5 w-full max-w-[16rem] rounded-2xl bg-white p-4">
           {card.qrUrl ? (
@@ -81,6 +110,48 @@ export function SponsorClient({
           <p className="mt-4 text-center text-sm text-[var(--ink)]">{card.note}</p>
         ) : null}
       </section>
+
+      <form className="panel rounded-2xl p-5" onSubmit={logGift}>
+        <h2 className="stage-sec">登记金额</h2>
+        <p className="mt-2 text-sm text-[var(--fog)]">
+          微信不会把金额发过来，所以转完后自己填一笔。已登记 ¥{formatSponsorYuan(mine.totalFen)}。填错了告诉管理员删掉。
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <label className="text-sm">
+            金额（元）
+            <input
+              className="input mt-1 w-32"
+              inputMode="decimal"
+              value={amount}
+              placeholder="20"
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </label>
+          <label className="min-w-48 flex-1 text-sm">
+            备注
+            <input
+              className="input mt-1 w-full"
+              maxLength={SPONSOR_GIFT_NOTE_MAX}
+              value={giftNote}
+              placeholder="可选"
+              onChange={(e) => setGiftNote(e.target.value)}
+            />
+          </label>
+        </div>
+        <button className="btn mt-4" type="submit" disabled={busy}>
+          {busy ? "提交中…" : "我转了这笔"}
+        </button>
+        {mine.entries.length ? (
+          <ul className="mt-4 space-y-1 text-sm text-[var(--fog)]">
+            {mine.entries.map((row) => (
+              <li key={row.id}>
+                {row.createdAt.slice(0, 16)} ¥{formatSponsorYuan(row.amountFen)}
+                {row.note ? ` · ${row.note}` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </form>
 
       {isAdmin ? (
         <form

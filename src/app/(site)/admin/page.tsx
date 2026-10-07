@@ -8,6 +8,7 @@ import { getSetupStatus } from "@/lib/setup-status";
 import { isPollOpen } from "@/lib/poll-rules";
 import { AdminClient } from "./AdminClient";
 import { listFeedbackForAdmin } from "@/lib/feedback";
+import { readSponsorLedger } from "@/lib/sponsor";
 import { redirect } from "next/navigation";
 
 export default async function AdminPage() {
@@ -79,6 +80,8 @@ export default async function AdminPage() {
     };
   });
 
+  const sponsor = await readSponsorLedger();
+
   return (
     <PageStage
       code="HDD-ADM"
@@ -94,6 +97,9 @@ export default async function AdminPage() {
         passphraseDbManaged={passphraseDbManaged}
         pollDetails={pollDetails}
         feedback={await listFeedbackForAdmin()}
+        sponsorTotals={sponsor.totals}
+        sponsorEntries={sponsor.entries}
+        sponsorMembers={sponsor.members}
       />
     </PageStage>
   );

@@ -692,6 +692,21 @@ function migrate(db: Database) {
     `CREATE INDEX IF NOT EXISTS idx_member_feedback_status
      ON member_feedback(status, id)`,
   );
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sponsor_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      amount_fen INTEGER NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+  `);
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_sponsor_ledger_user
+     ON sponsor_ledger(user_id, id)`,
+  );
 }
 
 export async function getDb(): Promise<Database> {

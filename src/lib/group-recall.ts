@@ -5,7 +5,7 @@
 import { isBotGroupName } from "@/lib/bot-chat";
 import { escapeLikePattern } from "@/lib/capsule-rules";
 import { isAgentCorpusText } from "@/lib/chat-parser";
-import { getDb, rowsFrom } from "@/lib/db";
+import { getDb, rowFrom, rowsFrom } from "@/lib/db";
 import {
   formatWhen,
   judgeTimeline,
@@ -237,38 +237,40 @@ async function linesMentioning(name: string, exceptQq: string, limit: number): P
   );
 }
 
-async function aliasNames(qq: string, displayName: string): Promise<string[]> {
-  const names = new Set<string>();
-  const card = displayName.trim();
-  if (card.length >= 2 && card.length <= 16) names.add(card);
-  if (!qq) return [...names];
-  const db = await getDb();
-  for (const row of rowsFrom<{ sender: string }>(
-    db,
-    `SELECT m.sender AS sender
-     FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' AND m.qq_number = ? AND m.sender != ''
-     GROUP BY m.sender
-     ORDER BY COUNT(*) DESC
-     LIMIT 3`,
-    [qq],
-  )) {
-    const name = String(row.sender || "").trim();
-    if (name.length >= 2 && name.length <= 16 && !isBotGroupName(name)) names.add(name);
+/** 把主键切成小段。段数不多时盖住全部 id，避免一条 SQL 把整表排进内存 */
+export function idWindows(
+  lo: number,
+  hi: number,
+  width = 8000,
+  maxWindows = 80,
+): Array<[number, number]> {
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) return [];
+  const span = hi - lo + 1;
+  const size = Math.max(1, Math.floor(width));
+  const cap = Math.max(2, Math.floor(maxWindows));
+  const starts: number[] = [];
+  const need = Math.ceil(span / size);
+  if (need <= cap) {
+    for (let start = lo; start <= hi; start += size) starts.push(start);
+  } else {
+    const step = Math.max(1, Math.floor((hi - lo) / (cap - 1)));
+    for (let i = 0; i < cap; i++) {
+      const start = Math.min(hi, lo + i * step);
+      if (!starts.includes(start)) starts.push(start);
+    }
   }
-  return [...names].slice(0, 4);
+  return starts.map((start) => [start, Math.min(hi, start + size - 1)]);
 }
 
-async function topicSlice(
+async function topicWindow(
   qq: string,
   names: string[],
   needles: string[],
-  order: "ASC" | "DESC",
-  limit: number,
+  lo: number,
+  hi: number,
 ): Promise<DatedLine[]> {
   const who: string[] = [];
-  const params: string[] = [];
+  const params: Array<string | number> = [lo, hi];
   if (qq) {
     who.push("m.qq_number = ?");
     params.push(qq);
@@ -280,7 +282,6 @@ async function topicSlice(
   }
   if (!who.length || !needles.length) return [];
   const topic = needles.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ");
-  const topicParams = needles.map((needle) => `%${escapeLikePattern(needle)}%`);
   const db = await getDb();
   return rowsFrom<{
     id: number;
@@ -295,11 +296,11 @@ async function topicSlice(
      FROM chat_messages m
      JOIN import_batches b ON b.id = m.batch_id
      WHERE b.status = 'active'
+       AND m.id >= ? AND m.id <= ?
        AND (${who.join(" OR ")})
        AND (${topic})
-     ORDER BY m.id ${order}
-     LIMIT ?`,
-    [...params, ...topicParams, limit],
+     LIMIT 3`,
+    [...params, ...needles.map((needle) => `%${escapeLikePattern(needle)}%`)],
   )
     .filter((row) => !isBotGroupName(row.sender) && isAgentCorpusText(row.content))
     .map((row) => ({
@@ -311,19 +312,36 @@ async function topicSlice(
     }));
 }
 
-/** 整段归档里和这个话题有关的发言。两头都取，才能对上新旧两个时间 */
+/** 按主键分段扫整段归档。每段只留几条，不把所有命中行排进内存 */
 async function linesAboutTopic(
   qq: string,
   names: string[],
   needles: string[],
 ): Promise<DatedLine[]> {
-  const [newer, older] = await Promise.all([
-    topicSlice(qq, names, needles, "DESC", 12),
-    topicSlice(qq, names, needles, "ASC", 8),
-  ]);
+  const db = await getDb();
+  const span = rowFrom<{ lo: number | null; hi: number | null }>(
+    db,
+    `SELECT MIN(m.id) AS lo, MAX(m.id) AS hi
+     FROM chat_messages m
+     JOIN import_batches b ON b.id = m.batch_id
+     WHERE b.status = 'active'`,
+  );
+  if (!span || span.lo == null || span.hi == null) return [];
+  const windows = idWindows(Number(span.lo), Number(span.hi));
   const merged: DatedLine[] = [];
-  for (const line of [...newer, ...older]) {
+  const push = (line: DatedLine) => {
     if (!merged.some((item) => item.id === line.id)) merged.push(line);
+  };
+  // 先看最近的段。话题很密时到上限就停，避免一次扫完全表
+  for (const [lo, hi] of [...windows].reverse()) {
+    for (const line of await topicWindow(qq, names, needles, lo, hi)) push(line);
+    if (merged.length >= 36) break;
+  }
+  const oldest = windows[0];
+  if (oldest) {
+    for (const line of await topicWindow(qq, names, needles, oldest[0], oldest[1])) {
+      push(line);
+    }
   }
   return merged;
 }
@@ -370,7 +388,9 @@ export async function collectGroupRecall(params: {
         : { qq: other?.qq || "", name: other?.name || "" };
     const aliases =
       subject === "self"
-        ? await aliasNames(params.selfQq, selfName)
+        ? selfName.length >= 2
+          ? [selfName]
+          : []
         : target.name
           ? [target.name]
           : [];

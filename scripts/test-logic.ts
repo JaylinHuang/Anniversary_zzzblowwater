@@ -12,6 +12,7 @@ import { archiveFromQceExporter, parseArchiveJson } from "../src/lib/chat-json";
 import { localEmbed } from "../src/lib/local-embed";
 import { pickPersonaSamples } from "../src/lib/roster";
 import { pickSpreadIds } from "../src/lib/corpus-sample";
+import { idWindows } from "../src/lib/group-recall";
 import {
   applyPersonaPatch,
   judgeTimeline,
@@ -232,6 +233,13 @@ async function main() {
     assert.ok(twice.includes("高三"));
     assert.ok(!twice.includes("初三"));
     assert.ok(AGENT_HARD_RULES.includes("时间更晚"));
+    const covered = idWindows(1, 20000, 8000, 80);
+    assert.deepStrictEqual(covered[0], [1, 8000]);
+    assert.strictEqual(covered[covered.length - 1][1], 20000);
+    const sampled = idWindows(1, 1_000_000, 8000, 80);
+    assert.ok(sampled.length <= 80);
+    assert.strictEqual(sampled[0][0], 1);
+    assert.strictEqual(sampled[sampled.length - 1][1], 1_000_000);
     ok("问自己也会对上话题，矛盾时以较新的时间更新人设");
   }
 

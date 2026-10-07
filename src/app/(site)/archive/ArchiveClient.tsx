@@ -134,6 +134,19 @@ export function ArchiveClient({
     }
   }
 
+  async function restore(batchId: number) {
+    try {
+      await apiFetch("/api/archive", {
+        method: "POST",
+        body: JSON.stringify({ action: "restore", batchId }),
+      });
+      success("批次已恢复");
+      router.refresh();
+    } catch (e) {
+      error(e instanceof Error ? e.message : "恢复失败");
+    }
+  }
+
   async function toggleQuote(id: number, on: boolean) {
     try {
       await apiFetch("/api/archive", {
@@ -250,6 +263,15 @@ export function ArchiveClient({
                     onClick={() => void rollback(b.id)}
                   >
                     撤销批次
+                  </button>
+                ) : null}
+                {b.status === "rolled_back" ? (
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => void restore(b.id)}
+                  >
+                    恢复批次
                   </button>
                 ) : null}
               </li>

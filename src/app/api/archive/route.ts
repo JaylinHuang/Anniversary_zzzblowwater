@@ -155,6 +155,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (action === "restore") {
+      const batchId = Number(body.batchId);
+      if (!Number.isInteger(batchId) || batchId <= 0) {
+        return NextResponse.json({ error: "批次不存在" }, { status: 400 });
+      }
+      // 只改状态。消息还在，不重新导入，也不在这里重建向量
+      await withDb((db) => {
+        db.run(
+          `UPDATE import_batches SET status = 'active'
+           WHERE id = ? AND status = 'rolled_back'`,
+          [batchId],
+        );
+      });
+      return NextResponse.json({ ok: true });
+    }
+
     if (action === "quote") {
       await requireModerator();
       const id = Number(body.messageId);

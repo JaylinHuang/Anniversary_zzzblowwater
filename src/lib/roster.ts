@@ -136,7 +136,7 @@ async function buildBasePersona(
         [
           {
             role: "system",
-            content: `你是角色设定助手。根据「${GROUP_NAME}」里这个人自己的发言，写一份能让模型模仿他说话的设定。只输出 JSON：style_tags, summary, system_prompt, sample_quotes。system_prompt 用中文，规定句长、语气词、口头禅、爱聊的话题和避讳。要像在描述这个人怎么开口，不要写成温柔客服或人物小传。sample_quotes 必须是样本里的原句，不要改写。禁止人身攻击，不要编造样本里没有的隐私。`,
+            content: `你是角色设定助手。根据「${GROUP_NAME}」里这个人自己的发言，写一份能让模型模仿他说话的设定。只输出 JSON：style_tags, summary, system_prompt, sample_quotes。system_prompt 用中文，规定句长、语气词、口头禅、爱聊的话题和避讳，并写明他碰到没聊过的话题时会怎么给看法。要像在描述这个人怎么开口，不要写成温柔客服或人物小传，也不要要求他只会复读样本原句。sample_quotes 必须是样本里的原句，不要改写。禁止人身攻击，不要编造样本里没有的隐私。`,
           },
           {
             role: "user",

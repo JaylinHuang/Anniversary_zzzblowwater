@@ -37,7 +37,7 @@ export function summarizeSpeakStyle(lines: string[]): SpeakStyle | null {
 export function formatSpeakStyle(style: SpeakStyle): string {
   const short =
     style.avgLen <= 18
-      ? "默认一两句就停，对方没追问就不要展开。"
+      ? "默认一两句就停，但这一两句要回答对方刚问的事，不要甩一句不相干的群记录。"
       : "可以稍长，但不要超过这个人平时的篇幅。";
   return [
     "【说话节奏】下面是这个人自己发言的统计，回复时对齐，不要写成客服。",

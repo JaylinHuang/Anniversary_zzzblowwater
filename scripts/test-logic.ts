@@ -202,9 +202,13 @@ async function main() {
     );
     assert.strictEqual(replyTemperature("今晚有票吗"), 0.55);
     assert.strictEqual(replyTemperature("查一下打了多少次"), 0.55);
+    assert.strictEqual(replyTemperature("你觉得麦当劳怎么样"), 0.85);
     assert.ok(replyTemperature("今晚有票吗") < replyTemperature("来句闲聊"));
+    assert.ok(replyTemperature("你觉得牢火怎么样") > replyTemperature("今晚有票吗"));
     assert.ok(replyTemperature("来句闲聊") > 0.55);
     assert.ok(AGENT_HARD_RULES.includes("一个字都不要补"));
+    assert.ok(AGENT_HARD_RULES.includes("给看法"));
+    assert.ok(!AGENT_HARD_RULES.includes("这我没在群里确认过"));
     const clipped = summarizeSpeakStyle(["嗯", "好", "在吗", "哈哈", "行", "睡了", "到了", "？"]);
     assert.ok(clipped);
     assert.ok(clipped!.avgLen < 10);

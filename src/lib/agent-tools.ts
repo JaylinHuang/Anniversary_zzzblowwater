@@ -166,7 +166,7 @@ export function buildToolRegistry(): ToolDef[] {
     {
       name: "search_group_lines",
       description:
-        "翻你自己在群里说过的原话。关键词和向量一起用，只返回你本人的发言。",
+        "想起你自己在群里说过什么。只返回你本人的发言，用来回忆，不要把结果整句贴成回复。",
       parameters: {
         type: "object",
         properties: {
@@ -180,9 +180,11 @@ export function buildToolRegistry(): ToolDef[] {
         if (!query) return "没给查询词，这次什么都没查。";
         const limit = clampLimit(readNumber(args, "limit"), 5, 10);
         const lines = await ctx.ports.searchGroupLines(query, limit);
-        if (!lines.length) return `关于「${query}」，群里没找到你自己的原话。`;
+        if (!lines.length) {
+          return `关于「${query}」，你没在群里说过这件事。对方要看法就按你的口气说你怎么想；对方要核对具体事实就说不记得，不要编时间、数字和约定。`;
+        }
         return [
-          `关于「${query}」找到 ${lines.length} 条你说过的原话：`,
+          `关于「${query}」，你以前说过这些。用来回忆你的态度，不要整句贴回去当回复：`,
           ...lines.map((line, i) => `${i + 1}. ${line}`),
         ].join("\n");
       },

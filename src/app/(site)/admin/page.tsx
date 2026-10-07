@@ -7,6 +7,7 @@ import { hasDbPassphrase } from "@/lib/passphrase";
 import { getSetupStatus } from "@/lib/setup-status";
 import { isPollOpen } from "@/lib/poll-rules";
 import { AdminClient } from "./AdminClient";
+import { listFeedbackForAdmin } from "@/lib/feedback";
 import { redirect } from "next/navigation";
 
 export default async function AdminPage() {
@@ -83,7 +84,7 @@ export default async function AdminPage() {
       code="HDD-ADM"
       channel="ADMIN"
       title="管理后台"
-        lede="模块开关、统计隐私、投票明细。新导入的群聊在每天凌晨四点跟进。"
+        lede="模块开关、统计隐私、投票明细，以及群友提交的意见。"
     >
       <AdminClient
         modules={modules}
@@ -92,6 +93,7 @@ export default async function AdminPage() {
         setup={setup}
         passphraseDbManaged={passphraseDbManaged}
         pollDetails={pollDetails}
+        feedback={await listFeedbackForAdmin()}
       />
     </PageStage>
   );

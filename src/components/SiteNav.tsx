@@ -175,6 +175,13 @@ export function SiteNav({
             管理
           </Link>
         ) : null}
+        <Link
+          href="/feedback"
+          className={`nav-chip ${isNavActive(pathname, "/feedback") ? "is-active" : ""}`}
+        >
+          <span className="mono text-[0.6rem] opacity-70">FB</span>
+          提意见
+        </Link>
       </div>
     </header>
   );

@@ -671,6 +671,27 @@ function migrate(db: Database) {
   } catch {
     /* ignore */
   }
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS member_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT DEFAULT (datetime('now')),
+      resolved_at TEXT,
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+  `);
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_member_feedback_user
+     ON member_feedback(user_id, id)`,
+  );
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_member_feedback_status
+     ON member_feedback(status, id)`,
+  );
 }
 
 export async function getDb(): Promise<Database> {

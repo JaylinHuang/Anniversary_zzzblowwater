@@ -13,6 +13,10 @@ import { localEmbed } from "../src/lib/local-embed";
 import { pickPersonaSamples } from "../src/lib/roster";
 import { pickSpreadIds } from "../src/lib/corpus-sample";
 import { idWindows } from "../src/lib/group-recall";
+import {
+  normalizeFeedbackBatch,
+  parseFeedbackDecision,
+} from "../src/lib/feedback";
 import { openRecall, sameNeedles, sealRecall } from "../src/lib/recall-cache";
 import {
   applyPersonaPatch,
@@ -853,6 +857,20 @@ async function main() {
     true,
   );
   ok("QQ 验证码规则");
+
+  const batch = normalizeFeedbackBatch([
+    { body: "  希望私聊再稳一点  ", note: "  刚才会断  " },
+    { body: "", note: "" },
+    { body: "词云能不能关掉机器人", note: "" },
+  ]);
+  assert.strictEqual(batch.length, 2);
+  assert.strictEqual(batch[0].body, "希望私聊再稳一点");
+  assert.strictEqual(batch[0].note, "刚才会断");
+  assert.throws(() => normalizeFeedbackBatch([{ body: "", note: "只有说明" }]));
+  assert.throws(() => normalizeFeedbackBatch([]));
+  assert.strictEqual(parseFeedbackDecision("accepted"), "accepted");
+  assert.throws(() => parseFeedbackDecision("maybe"));
+  ok("意见可以批量提交，空行丢掉");
 
   console.log("全部逻辑用例通过");
 }

@@ -6,6 +6,8 @@ import { useToast } from "@/components/ToastProvider";
 import { UserChip } from "@/components/UserChip";
 import { apiFetch } from "@/lib/api-client";
 import type { ModuleKey } from "@/lib/constants";
+import type { FeedbackRow } from "@/lib/feedback";
+import { FeedbackInbox } from "./FeedbackInbox";
 
 export function AdminClient({
   modules,
@@ -14,6 +16,7 @@ export function AdminClient({
   setup,
   passphraseDbManaged,
   pollDetails,
+  feedback,
 }: {
   modules: { key: ModuleKey; label: string; enabled: boolean }[];
   statsPublic: boolean;
@@ -46,6 +49,7 @@ export function AdminClient({
       optionLabel: string;
     }[];
   }[];
+  feedback: FeedbackRow[];
 }) {
   const router = useRouter();
   const { success, error } = useToast();
@@ -301,6 +305,7 @@ export function AdminClient({
           群聊仍在归档页手动导入 JSON，导入后会留在归档里。每天北京时间 04:00，如果有还没跟进的新批次，就按现有的清洗结果重炼相关分身并重建向量。没有新文件就不动，也不用再点那两个按钮。
         </p>
       </section>
+      <FeedbackInbox items={feedback} />
     </div>
   );
 }

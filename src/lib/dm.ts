@@ -2,8 +2,8 @@ import { agentDmDailyLimit } from "@/lib/constants";
 import { countUserDmTurnsTodaySync } from "@/lib/dm-limit";
 import { todayKey } from "@/lib/date-key";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
-import { runMemberCrew } from "@/lib/agent-crew";
-import { getAgentById, listRosterAgents, listUserSenderNames } from "@/lib/roster";
+import { runMemberTurn } from "@/lib/agent-turn";
+import { getAgentById, listUserSenderNames } from "@/lib/roster";
 
 export async function getOrCreateActiveSession(userId: number, agentId: number) {
   const db = await getDb();
@@ -137,8 +137,8 @@ export async function sendDm(params: {
     const userName = speaker?.display_name || `群友#${params.userId}`;
     const userQq = speaker?.qq_number?.trim() || null;
     const userAliases = await listUserSenderNames(userQq, userName);
-    const roster = await listRosterAgents();
-    const reply = await runMemberCrew({
+    // 一轮多步工具回路：记忆分层和工具调用都在 agent-turn 里
+    const reply = await runMemberTurn({
       agent: agent!,
       userId: params.userId,
       userName,
@@ -146,13 +146,7 @@ export async function sendDm(params: {
       userAliases,
       userText: text,
       history: history.slice(0, -1),
-      peers: roster
-        .filter((item) => item.id !== agent!.id)
-        .map((item) => ({
-          id: item.id,
-          name: item.display_name,
-          qq: item.qq,
-        })),
+      sessionId: session.id,
     });
 
     const turnCount = await withDb((db) => {

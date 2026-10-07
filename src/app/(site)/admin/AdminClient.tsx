@@ -14,7 +14,6 @@ export function AdminClient({
   setup,
   passphraseDbManaged,
   pollDetails,
-  onebot,
 }: {
   modules: { key: ModuleKey; label: string; enabled: boolean }[];
   statsPublic: boolean;
@@ -47,20 +46,6 @@ export function AdminClient({
       optionLabel: string;
     }[];
   }[];
-  onebot: {
-    configured: boolean;
-    groupId: string | null;
-    webhookUrl: string;
-    pending: number;
-    lastFlushAt: string | null;
-    batch: {
-      id: number;
-      messageCount: number;
-      timeStart: string | null;
-      timeEnd: string | null;
-      status: string;
-    } | null;
-  };
 }) {
   const router = useRouter();
   const { success, error } = useToast();
@@ -311,42 +296,10 @@ export function AdminClient({
       </section>
 
       <section className="panel rounded-2xl p-5">
-        <h2 className="stage-sec">群消息 · 实时收取，凌晨灌库</h2>
-        <p className="mt-2 text-sm text-[var(--fog)]">
-          状态：
-          <span className={onebot.configured ? "text-[var(--cyan)]" : "text-[var(--danger)]"}>
-            {onebot.configured ? "已配置令牌" : "未配置 ONEBOT_ACCESS_TOKEN"}
-          </span>
-          {onebot.groupId ? ` · 限定群 ${onebot.groupId}` : " · 未限定群号"}
-        </p>
+        <h2 className="stage-sec">群聊导入 · 凌晨跟进</h2>
         <p className="mt-3 text-sm text-[var(--ink)]">
-          收件箱待灌入 {onebot.pending} 条
-          {onebot.lastFlushAt
-            ? ` · 上次灌库 ${onebot.lastFlushAt.replace("T", " ").slice(0, 16)}`
-            : " · 还没灌过库"}
+          群聊仍在归档页手动导入 JSON，导入后会留在归档里。每天北京时间 04:00，如果有还没跟进的新批次，就按现有的清洗结果重炼相关分身并重建向量。没有新文件就不动，也不用再点那两个按钮。
         </p>
-        <p className="mt-3 break-all text-sm">
-          Webhook URL：
-          <code className="text-[var(--cyan)]">{onebot.webhookUrl}</code>
-        </p>
-        <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-[var(--fog)]">
-          <li>
-            在 <code>.env</code> 设置 <code>ONEBOT_ACCESS_TOKEN</code> 与{" "}
-            <code>ONEBOT_GROUP_ID</code>，重启服务
-          </li>
-          <li>用 NapCat 登录一个已在群里的 QQ，打开 OneBot 11 的 HTTP 上报</li>
-          <li>
-            上报地址填上面的 URL，令牌用{" "}
-            <code>Authorization: Bearer &lt;令牌&gt;</code>
-          </li>
-          <li>消息先脱敏收成 JSON，停在收件箱，不立刻进归档和统计</li>
-          <li>每天北京时间 04:00 灌进群聊归档，并刷新已绑定 Agent 的条数和向量。趣味统计下次打开就会用上新消息</li>
-        </ol>
-        {onebot.batch ? (
-          <p className="mt-4 text-sm text-[var(--fog)]">
-            旧的实时批次 #{onebot.batch.id} 还在归档里，共 {onebot.batch.messageCount} 条。新消息改走每天凌晨的批次。
-          </p>
-        ) : null}
       </section>
     </div>
   );

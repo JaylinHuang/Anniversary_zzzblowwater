@@ -52,7 +52,7 @@ export async function bumpAgentSourceCount(qq: string) {
   });
 }
 
-/** 拉取某 QQ 的群聊记录（归档，含 OneBot 实时） */
+/** 拉取某 QQ 的群聊记录（归档导入） */
 export async function listAgentGroupChat(qq: string, limit = 40) {
   const db = await getDb();
   return rowsFrom<{

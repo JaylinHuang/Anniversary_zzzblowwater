@@ -59,31 +59,13 @@ docker run -d -p 3000:3000 \
 - 趣味统计、祝福墙 / 时间胶囊
 - 派对游戏：扭蛋、签文、问答、拼图、猜说话人
 - 活动报名与投票、Meme 馆、人物关系星图
-- OneBot/NapCat 实时同步（可选）
-- 群友 Agent：管理员手动建档 + 一对一单聊
+- 群友 Agent：管理员手动建档 + 一对一单聊。新导入的 JSON 在每天北京时间 04:00 自动重炼相关分身并重建向量
 
 顶栏：**常用 5 入口 +「更多」**；「管理」仅 admin 可见。交互反馈走 Toast / Confirm。
 
-## 方案 B：机器人实时同步
+## 群聊更新
 
-1. 在 `.env` 配置：
-
-```env
-ONEBOT_ACCESS_TOKEN=一串足够长的随机令牌
-ONEBOT_GROUP_ID=你的QQ群号
-```
-
-2. 重启服务后，在管理后台可看到 Webhook：
-
-`http://你的域名/api/webhooks/onebot`
-
-3. NapCat / OneBot 将 **HTTP 上报** 指向该地址，鉴权使用：
-
-`Authorization: Bearer <ONEBOT_ACCESS_TOKEN>`
-
-4. 群内新消息会进入归档批次 `onebot-live`（自动脱敏、按 message_id 去重）。
-
-> 历史记录用管理员导入 zzz-archive JSON。机器人主要覆盖「上线之后」的新消息。
+历史和增量都用管理员在归档页导入 zzz-archive JSON，导入后留在归档里。站点进程开着时，每天北京时间 04:00 检查有没有还没跟进的新批次；有的话才重炼相关分身并重建向量。没有新文件就不动。
 
 ## 群友 Agent（手动建档）
 

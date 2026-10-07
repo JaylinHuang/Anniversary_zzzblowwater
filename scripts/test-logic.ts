@@ -12,17 +12,15 @@ import { archiveFromQceExporter, parseArchiveJson } from "../src/lib/chat-json";
 import { localEmbed } from "../src/lib/local-embed";
 import { pickPersonaSamples } from "../src/lib/roster";
 import { rerankHits } from "../src/lib/rag-rerank";
-import { replyTemperature, AGENT_HARD_RULES, formatSpeakerIdentity, sameQq, correctSelfReply } from "../src/lib/agent-crew";
+import { replyTemperature, AGENT_HARD_RULES, formatSpeakerIdentity, sameQq, correctSelfReply, correctOtherReply } from "../src/lib/agent-crew";
 import { formatSpeakStyle, summarizeSpeakStyle } from "../src/lib/speak-stats";
 import * as XLSX from "xlsx";
 import { desensitize } from "../src/lib/desensitize";
 import {
-  archiveJsonFromInbox,
-  cleanOneBotToJson,
   flushIsDue,
-  parseInboxJson,
   shanghaiDayKey,
-} from "../src/lib/live-inbox";
+} from "../src/lib/daily-flush";
+import { trackedQqsInImport } from "../src/lib/import-refresh";
 import {
   pickBaselineRoster,
   qualifiesForAdmission,
@@ -45,12 +43,6 @@ import {
 } from "../src/lib/stats-rules";
 import { cleanWordCloud } from "../src/lib/wordcloud-clean";
 import { isBotChat } from "../src/lib/bot-chat";
-import {
-  extractPlainText,
-  formatSender,
-  formatSentAt,
-  shouldAcceptGroup,
-} from "../src/lib/onebot-parse";
 import { pickFeaturedEvent } from "../src/lib/events-rules";
 import { filterMembers } from "../src/lib/members-filter";
 import {
@@ -229,6 +221,21 @@ async function main() {
     assert.strictEqual(
       correctSelfReply("知道啊，sr.11嘛，群里那个", "sr.11", "厂夏"),
       "你就是我。群名片是sr.11，这张卡叫厂夏。",
+    );
+    const other = formatSpeakerIdentity("小明", ["小明"], {
+      self: false,
+      agentName: "厂夏",
+    });
+    assert.ok(other.includes("不是你本人"));
+    assert.ok(other.includes("发送者写成 「小明」 的，才是他"));
+    assert.ok(!/发送者写成[^。]*「厂夏」/.test(other));
+    assert.strictEqual(
+      correctOtherReply("你就是我。群名片是小明，这张卡叫厂夏。", "小明", "厂夏"),
+      "你是小明，我是厂夏。咱们不是同一个人。",
+    );
+    assert.strictEqual(
+      correctOtherReply("今晚不去深渊。", "小明", "厂夏"),
+      "今晚不去深渊。",
     );
     ok("混合检索丢掉重复、无效和互相矛盾的旧说法");
   }
@@ -576,25 +583,6 @@ async function main() {
   );
   ok("深夜指数与词云清洗");
 
-  const plain = extractPlainText({
-    raw_message: "",
-    message: [
-      { type: "text", data: { text: "你好" } },
-      { type: "image", data: {} },
-      { type: "at", data: { qq: "10001" } },
-    ],
-  });
-  assert.strictEqual(plain, "你好[图片]@10001");
-  assert.strictEqual(
-    formatSender({ sender: { card: "群名片", nickname: "昵称" }, user_id: 1 }),
-    "群名片",
-  );
-  assert.ok(formatSentAt(1720000000).startsWith("2024-"));
-  assert.strictEqual(shouldAcceptGroup(869747866, "869747866"), true);
-  assert.strictEqual(shouldAcceptGroup(1, "869747866"), false);
-  assert.strictEqual(shouldAcceptGroup(1, null), true);
-  ok("OneBot 文本提取与群过滤");
-
   const featured = pickFeaturedEvent(
     [
       {
@@ -701,42 +689,11 @@ async function main() {
   assert.strictEqual(flushIsDue(atFour, atFour.toISOString()), false);
   assert.strictEqual(flushIsDue(nextFour, atFour.toISOString()), true);
   assert.strictEqual(shanghaiDayKey(atFour), "2026-10-06");
-  const inboxCleaned = cleanOneBotToJson(
-    {
-      post_type: "message",
-      message_type: "group",
-      group_id: "869747866",
-      user_id: "10001",
-      message_id: "55",
-      time: Math.floor(atFour.getTime() / 1000),
-      sender: { card: "绳匠" },
-      message: "晚上见 13800138000",
-    },
-    "869747866",
+  assert.deepStrictEqual(
+    trackedQqsInImport(["10001", "10002", "10001", ""], ["10002"]),
+    ["10002"],
   );
-  assert.ok(!("skip" in inboxCleaned));
-  if (!("skip" in inboxCleaned)) {
-    assert.match(inboxCleaned.json, /\[手机号\]/);
-    assert.strictEqual(parseInboxJson(inboxCleaned.json)?.sourceMsgId, "55");
-    assert.strictEqual(parseInboxJson(inboxCleaned.json)?.sentAt?.slice(0, 13), "2026-10-06 04");
-    const archive = archiveJsonFromInbox([inboxCleaned.payload], {
-      groupName: "zzz吹水群",
-      groupId: "869747866",
-      sourceFile: "onebot-daily-2026-10-06.json",
-    });
-    const back = parseArchiveJson(archive);
-    assert.strictEqual(back.messages.length, 1);
-    assert.strictEqual(back.messages[0]?.content.includes("13800138000"), false);
-  }
-  assert.strictEqual(
-    "skip" in cleanOneBotToJson({ post_type: "message", message_type: "group", group_id: "1", message: "hi" }, "869747866"),
-    true,
-  );
-  assert.strictEqual(
-    "skip" in cleanOneBotToJson({ post_type: "message", message_type: "private", message: "hi" }, null),
-    true,
-  );
-  ok("凌晨灌库与消息清洗");
+  ok("新导入只跟进批次里已绑定的分身");
 
   assert.strictEqual(isNavActive("/agents/3", "/agents"), true);
   assert.strictEqual(isNavActive("/wishes", "/games"), false);

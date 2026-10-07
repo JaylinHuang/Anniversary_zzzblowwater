@@ -1,264 +1,92 @@
-import { GROUP_NAME } from "@/lib/constants";
-import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
-import {
-  archiveJsonFromInbox,
-  cleanOneBotToJson,
-  flushIsDue,
-  parseInboxJson,
-  shanghaiDayKey,
-  type InboxPayload,
-} from "@/lib/live-inbox";
-import type { OneBotIncoming } from "@/lib/onebot-parse";
+import { getDb, rowFrom, withDb } from "@/lib/db";
 
-const FLUSH_KEY = "live_flush_at";
+/** 每天跟进新导入的钟点，按北京时间 */
+export const DAILY_FLUSH_HOUR = 4;
 
-let flushing = false;
+const REFRESH_KEY = "import_refresh_at";
 
-/** 实时消息只进收件箱，不进归档。凌晨任务再灌。 */
-export async function stageGroupMessage(
-  payload: OneBotIncoming,
-  configuredGroupId: string | null,
-): Promise<{ ok: boolean; skipped?: string; id?: number }> {
-  const cleaned = cleanOneBotToJson(payload, configuredGroupId);
-  if ("skip" in cleaned) return { ok: true, skipped: cleaned.skip };
+let refreshing = false;
 
-  const saved = await withDb((db) => {
-    if (cleaned.payload.sourceMsgId) {
-      const dup = rowFrom<{ id: number }>(
-        db,
-        `SELECT id FROM live_inbox WHERE source_msg_id = ? LIMIT 1`,
-        [cleaned.payload.sourceMsgId],
-      );
-      if (dup) return { id: dup.id, duplicate: true };
-    }
-    db.run(
-      `INSERT INTO live_inbox (source_msg_id, payload_json) VALUES (?, ?)`,
-      [cleaned.payload.sourceMsgId, cleaned.json],
-    );
-    const row = rowFrom<{ id: number }>(
-      db,
-      `SELECT id FROM live_inbox ORDER BY id DESC LIMIT 1`,
-    );
-    return { id: row!.id, duplicate: false };
-  });
-
-  if (saved.duplicate) return { ok: true, skipped: "duplicate", id: saved.id };
-  return { ok: true, id: saved.id };
+/** 北京时间的年月日时，hour 为 0–23 */
+export function shanghaiClock(now: Date): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+} {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const num = (type: string) =>
+    Number(parts.find((part) => part.type === type)?.value ?? "0");
+  let hour = num("hour");
+  if (hour === 24) hour = 0;
+  return { year: num("year"), month: num("month"), day: num("day"), hour };
 }
 
-export async function getInboxStatus(): Promise<{
-  pending: number;
-  lastFlushAt: string | null;
-}> {
+export function shanghaiDayKey(now: Date): string {
+  const clock = shanghaiClock(now);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${clock.year}-${pad(clock.month)}-${pad(clock.day)}`;
+}
+
+/**
+ * 是否到了该跟进的时候。
+ * 北京时间 4 点之前不跑；当天已经跟进过也不再跑。
+ * 服务若错过 4 点，当天稍后启动时补跑一次。
+ */
+export function flushIsDue(
+  now: Date,
+  lastFlushIso: string | null,
+  hour = DAILY_FLUSH_HOUR,
+): boolean {
+  const clock = shanghaiClock(now);
+  if (clock.hour < hour) return false;
+  if (!lastFlushIso) return true;
+  const last = new Date(lastFlushIso);
+  if (Number.isNaN(last.getTime())) return true;
+  return shanghaiDayKey(last) !== shanghaiDayKey(now);
+}
+
+async function lastRefreshAt(): Promise<string | null> {
   const db = await getDb();
-  const pending = Number(
-    rowFrom<{ c: number }>(
-      db,
-      `SELECT COUNT(*) as c FROM live_inbox WHERE flushed_at IS NULL`,
-    )?.c ?? 0,
-  );
-  const lastFlushAt =
+  return (
     rowFrom<{ value: string }>(
       db,
       `SELECT value FROM site_settings WHERE key = ?`,
-      [FLUSH_KEY],
-    )?.value ?? null;
-  return { pending, lastFlushAt };
+      [REFRESH_KEY],
+    )?.value ?? null
+  );
 }
 
-async function rememberFlush(iso: string) {
+async function rememberRefresh(iso: string) {
   await withDb((db) => {
     db.run(
       `INSERT INTO site_settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      [FLUSH_KEY, iso],
+      [REFRESH_KEY, iso],
     );
   });
 }
 
-/**
- * 把收件箱里的 JSON 收成一份 zzz-archive，写入归档，
- * 再刷新已绑定 Agent 的条数和向量。趣味统计直接读归档，不用另存。
- */
-export async function flushLiveInbox(now = new Date()): Promise<{
-  flushed: number;
-  batchId: number | null;
-  embedded: number;
-}> {
-  const db = await getDb();
-  const rows = rowsFrom<{ id: number; payload_json: string }>(
-    db,
-    `SELECT id, payload_json FROM live_inbox
-     WHERE flushed_at IS NULL
-     ORDER BY id ASC`,
-  );
-  const staged: { id: number; payload: InboxPayload }[] = [];
-  const invalidIds: number[] = [];
-  for (const row of rows) {
-    const payload = parseInboxJson(row.payload_json);
-    if (payload) staged.push({ id: row.id, payload });
-    else invalidIds.push(row.id);
-  }
-
-  if (!staged.length) {
-    await rememberFlush(now.toISOString());
-    if (rows.length) {
-      await withDb((database) => {
-        for (const row of rows) {
-          database.run(
-            `UPDATE live_inbox SET flushed_at = ? WHERE id = ? AND flushed_at IS NULL`,
-            [now.toISOString(), row.id],
-          );
-        }
-      });
-    }
-    return { flushed: 0, batchId: null, embedded: 0 };
-  }
-
-  const dayKey = shanghaiDayKey(now);
-  const sourceFile = `onebot-daily-${dayKey}.json`;
-  const archiveJson = archiveJsonFromInbox(
-    staged.map((row) => row.payload),
-    {
-      groupName: GROUP_NAME,
-      groupId: process.env.ONEBOT_GROUP_ID?.trim() || "",
-      sourceFile,
-    },
-  );
-  // 再过一遍归档解析，和手动导入同一扇门
-  const { parseArchiveJson } = await import("@/lib/chat-json");
-  const checked = parseArchiveJson(archiveJson);
-  if (checked.messages.length !== staged.length) {
-    throw new Error("归档 JSON 条数和收件箱不一致");
-  }
-
-  const batchId = await withDb((database) => {
-    database.run(
-      `INSERT INTO import_batches (filename, message_count, time_start, time_end, created_by, status)
-       VALUES (?, 0, NULL, NULL, NULL, 'active')`,
-      [sourceFile],
-    );
-    const batch = rowFrom<{ id: number }>(
-      database,
-      `SELECT id FROM import_batches ORDER BY id DESC LIMIT 1`,
-    )!;
-    const insert = database.prepare(
-      `INSERT INTO chat_messages
-         (batch_id, sender, qq_number, sent_at, content, content_raw, is_quote, source_msg_id)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
-    );
-    let count = 0;
-    let timeStart: string | null = null;
-    let timeEnd: string | null = null;
-    try {
-      for (let i = 0; i < staged.length; i++) {
-        const item = staged[i];
-        const message = checked.messages[i];
-        if (!message) continue;
-        if (item.payload.sourceMsgId) {
-          const dup = rowFrom<{ id: number }>(
-            database,
-            `SELECT id FROM chat_messages WHERE source_msg_id = ? LIMIT 1`,
-            [item.payload.sourceMsgId],
-          );
-          if (dup) {
-            database.run(
-              `UPDATE live_inbox SET flushed_at = ?, batch_id = ? WHERE id = ?`,
-              [now.toISOString(), batch.id, item.id],
-            );
-            continue;
-          }
-        }
-        insert.run([
-          batch.id,
-          message.sender,
-          message.qq,
-          message.sentAt,
-          message.content,
-          message.content,
-          item.payload.sourceMsgId,
-        ]);
-        count += 1;
-        if (message.sentAt) {
-          if (!timeStart || message.sentAt < timeStart) timeStart = message.sentAt;
-          if (!timeEnd || message.sentAt > timeEnd) timeEnd = message.sentAt;
-        }
-        database.run(
-          `UPDATE live_inbox SET flushed_at = ?, batch_id = ? WHERE id = ?`,
-          [now.toISOString(), batch.id, item.id],
-        );
-      }
-    } finally {
-      insert.free();
-    }
-    database.run(
-      `UPDATE import_batches
-       SET message_count = ?, time_start = ?, time_end = ?
-       WHERE id = ?`,
-      [count, timeStart, timeEnd, batch.id],
-    );
-    database.run(
-      `INSERT INTO site_settings (key, value) VALUES (?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      [FLUSH_KEY, now.toISOString()],
-    );
-    for (const id of invalidIds) {
-      database.run(
-        `UPDATE live_inbox SET flushed_at = ? WHERE id = ? AND flushed_at IS NULL`,
-        [now.toISOString(), id],
-      );
-    }
-    return batch.id;
-  });
-
-  const qqs = new Set(
-    staged.map((row) => row.payload.qq).filter((qq): qq is string => Boolean(qq)),
-  );
-  try {
-    const { bumpAgentSourceCount, listTrackedAgentQqs } = await import(
-      "@/lib/roster"
-    );
-    const tracked = new Set(await listTrackedAgentQqs());
-    for (const qq of qqs) {
-      if (tracked.has(qq)) await bumpAgentSourceCount(qq);
-    }
-  } catch (error) {
-    console.error(
-      "[daily-flush] agent count",
-      error instanceof Error ? error.message : "failed",
-    );
-  }
-
-  let embedded = 0;
-  try {
-    const { indexEmbeddingsForQq } = await import("@/lib/rag");
-    const { listTrackedAgentQqs } = await import("@/lib/roster");
-    const tracked = await listTrackedAgentQqs();
-    for (const qq of tracked) {
-      if (!qqs.has(qq)) continue;
-      const result = await indexEmbeddingsForQq(qq);
-      embedded += result.indexed;
-    }
-  } catch (error) {
-    console.error(
-      "[daily-flush] embeddings",
-      error instanceof Error ? error.message : "failed",
-    );
-  }
-
-  return { flushed: staged.length, batchId, embedded };
-}
-
+/** 到点后，有新导入才重炼分身并重建向量。没有新批次也记下今天已看过。 */
 export async function runScheduledFlush(now = new Date()): Promise<boolean> {
-  if (flushing) return false;
-  const { lastFlushAt } = await getInboxStatus();
-  if (!flushIsDue(now, lastFlushAt)) return false;
-  flushing = true;
+  if (refreshing) return false;
+  const last = await lastRefreshAt();
+  if (!flushIsDue(now, last)) return false;
+  refreshing = true;
   try {
-    await flushLiveInbox(now);
+    const { refreshImportedAgents } = await import("@/lib/import-refresh");
+    await refreshImportedAgents();
+    await rememberRefresh(now.toISOString());
     return true;
   } finally {
-    flushing = false;
+    refreshing = false;
   }
 }
 

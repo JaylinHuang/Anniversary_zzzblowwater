@@ -17,7 +17,6 @@
 |------|------|
 | `SITE_PASSPHRASE` | 群口令（勿用示例默认值上线） |
 | `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` | 可选，Agent 单聊需要 |
-| `ONEBOT_ACCESS_TOKEN` / `ONEBOT_GROUP_ID` | 可选，机器人同步 |
 
 4. **Settings → Volumes** → Add Volume，**Mount Path 填：`/app/data`**（不要填 `/data`）
 5. **Settings → Networking** → **Generate Domain**，得到 `https://xxx.up.railway.app`
@@ -46,4 +45,4 @@ railway variables set SITE_PASSPHRASE="你的群口令"
 
 - **不要**把本机 `app.db` 指望通过 Git 同步；需要迁移数据时，用 Railway 的 volume 备份/下载，或本地导出后上传。
 - 海外节点访问国内可能偏慢；能接受即可。若以后要更快，再迁国内 VPS。
-- OneBot Webhook 地址形如：`https://你的域名/api/webhooks/onebot`
+- 群聊增量在归档页导入 JSON。进程开着时，每天北京时间 04:00 跟进新批次。

@@ -18,7 +18,6 @@
 |------|------|
 | `SITE_PASSPHRASE` | 群口令（上线勿用默认示例） |
 | `LLM_*` | 可选，Agent 需要 |
-| `ONEBOT_*` | 可选，机器人同步 |
 
 5. 打开 **Volumes** → **Mount Volumes**：
    - Volume ID：随便，如 `app-data`
@@ -36,10 +35,9 @@
 - [ ] 重启/重新部署后用户数据还在（证明卷生效）
 - [ ] （可选）归档导入一条样本消息，再部署一次仍在
 
-## 4. Webhook（可选）
+## 4. 群聊更新
 
-OneBot 上报地址：`https://你的域名/api/webhooks/onebot`  
-鉴权：`Authorization: Bearer <ONEBOT_ACCESS_TOKEN>`
+管理员在归档页导入 JSON。进程开着时，每天北京时间 04:00 跟进新批次：重炼相关分身并重建向量。
 
 ## 5. 和 Railway 的差异（对本站）
 

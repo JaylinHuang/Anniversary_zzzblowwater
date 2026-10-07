@@ -44,8 +44,6 @@ export async function getSetupStatus(): Promise<{
     (await hasDbPassphrase()) ||
     (Boolean(process.env.SITE_PASSPHRASE) &&
       process.env.SITE_PASSPHRASE !== DEFAULT_PASSPHRASE);
-  const onebotToken = Boolean(process.env.ONEBOT_ACCESS_TOKEN?.trim());
-  const onebotGroup = Boolean(process.env.ONEBOT_GROUP_ID?.trim());
   const llm = isLlmConfigured();
 
   const items: SetupItem[] = [
@@ -96,20 +94,6 @@ export async function getSetupStatus(): Promise<{
       label: "已有管理员建档的 Agent",
       ok: agentCount > 0,
       hint: "管理员在「群友 Agent」页手动添加：姓名、插画、绑定 QQ",
-      critical: false,
-    },
-    {
-      id: "onebot",
-      label: "OneBot 令牌已配置",
-      ok: onebotToken,
-      hint: "可选：ONEBOT_ACCESS_TOKEN + ONEBOT_GROUP_ID",
-      critical: false,
-    },
-    {
-      id: "onebot-group",
-      label: "OneBot 已限定群号",
-      ok: onebotGroup,
-      hint: "建议设置 ONEBOT_GROUP_ID=你的群号",
       critical: false,
     },
   ];

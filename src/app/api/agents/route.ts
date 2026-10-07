@@ -190,17 +190,8 @@ export async function POST(req: Request) {
       if (!agent) {
         return NextResponse.json({ error: "Agent 不存在" }, { status: 404 });
       }
-      const { indexEmbeddingsForQq } = await import("@/lib/rag");
-      const { resolveEmbedBackend } = await import("@/lib/llm");
-      const { withDb } = await import("@/lib/db");
-      const backend = await resolveEmbedBackend();
-      await withDb((db) => {
-        db.run(
-          `DELETE FROM chat_embeddings WHERE qq_number = ? AND model = ?`,
-          [agent.qq, backend.model],
-        );
-      });
-      const result = await indexEmbeddingsForQq(agent.qq);
+      const { rebuildEmbeddingsForQq } = await import("@/lib/rag");
+      const result = await rebuildEmbeddingsForQq(agent.qq);
       const notice = result.local
         ? `云端业务空间拒绝了当前密钥，已用本地检索索引 ${result.indexed} 条原话。换上该空间自己的 Key 并重启后，再点一次会改走云端向量。`
         : undefined;

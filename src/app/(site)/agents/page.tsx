@@ -28,8 +28,8 @@ export default async function AgentsPage() {
       title="群友 Agent"
       lede={
         canManage
-          ? `管理员可在此为「${GROUP_NAME}」建档分身（姓名、插画、绑定 QQ）。成员点进卡片即可单聊。`
-          : `点进卡片，和「${GROUP_NAME}」里已建档的群友分身说话。聊天记录只你能看，但同一个分身的记忆是所有人共用的一份。`
+          ? `管理员可在此为「${GROUP_NAME}」建档分身（姓名、插画、绑定 QQ）。新的群聊 JSON 仍在归档页导入并保留。每天北京时间 04:00，若有新批次，会自动重炼相关分身并重建向量。`
+          : `点进卡片，和「${GROUP_NAME}」里已建档的群友分身说话。聊天记录和你让它记住的事只你能看。`
       }
       rail={
         <div className="page-index">

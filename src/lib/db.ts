@@ -20,6 +20,76 @@ function persist(db: Database) {
   fs.writeFileSync(DB_PATH, Buffer.from(data));
 }
 
+/**
+ * 私聊分身的分层记忆表。
+ * 长期记忆按 (分身 id, 网站用户 id) 隔离，别人检索不到；
+ * 工作记忆只属于一轮，轮内记下查过什么、用了哪个工具、走到第几步。
+ * 迁移和自测脚本共用这一份建表语句，避免两边写法漂移。
+ */
+export const AGENT_MEMORY_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_user_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    topic TEXT NOT NULL DEFAULT '',
+    fact TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'fact',
+    importance REAL NOT NULL DEFAULT 0.35,
+    hit_count INTEGER NOT NULL DEFAULT 0,
+    vector_json TEXT DEFAULT '',
+    superseded_by INTEGER,
+    last_hit_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_agent_user_memory_scope
+    ON agent_user_memory(agent_id, user_id, superseded_by);
+
+  CREATE TABLE IF NOT EXISTS agent_working_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    turn_id TEXT NOT NULL,
+    agent_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    step INTEGER NOT NULL DEFAULT 0,
+    tool TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_agent_working_memory_turn
+    ON agent_working_memory(turn_id, user_id);
+
+  CREATE TABLE IF NOT EXISTS agent_dm_window (
+    session_id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    agent_id INTEGER NOT NULL,
+    compressed_upto_id INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+`;
+
+/** 建表 + 兼容旧库的逐列 ALTER。新库跑 ALTER 会直接抛错，吞掉即可 */
+export function migrateAgentMemory(db: Database) {
+  db.run(AGENT_MEMORY_SCHEMA_SQL);
+  const alters = [
+    `ALTER TABLE agent_user_memory ADD COLUMN topic TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE agent_user_memory ADD COLUMN kind TEXT NOT NULL DEFAULT 'fact'`,
+    `ALTER TABLE agent_user_memory ADD COLUMN importance REAL NOT NULL DEFAULT 0.35`,
+    `ALTER TABLE agent_user_memory ADD COLUMN hit_count INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE agent_user_memory ADD COLUMN vector_json TEXT DEFAULT ''`,
+    `ALTER TABLE agent_user_memory ADD COLUMN superseded_by INTEGER`,
+    `ALTER TABLE agent_user_memory ADD COLUMN last_hit_at TEXT`,
+  ];
+  for (const sql of alters) {
+    try {
+      db.run(sql);
+    } catch {
+      /* 已存在 */
+    }
+  }
+}
+
 function migrate(db: Database) {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -77,7 +147,8 @@ function migrate(db: Database) {
       time_end TEXT,
       status TEXT DEFAULT 'active',
       created_by INTEGER,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now')),
+      agent_refreshed_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS chat_messages (
@@ -91,15 +162,6 @@ function migrate(db: Database) {
       is_quote INTEGER DEFAULT 0,
       source_msg_id TEXT,
       FOREIGN KEY(batch_id) REFERENCES import_batches(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS live_inbox (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source_msg_id TEXT,
-      payload_json TEXT NOT NULL,
-      received_at TEXT DEFAULT (datetime('now')),
-      flushed_at TEXT,
-      batch_id INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS wishes (
@@ -310,7 +372,8 @@ function migrate(db: Database) {
       FOREIGN KEY(session_id) REFERENCES agent_dm_sessions(id)
     );
 
-    -- 同一个群友分身的共享记忆：不按聊天对象拆开，只记下是在跟谁说话时写下的
+    -- 旧版按分身共享的记忆表：已经没有任何代码读写，只为兼容旧库保留；
+    -- 现在的长期记忆见 agent_user_memory，按 (分身, 网站用户) 隔离
     CREATE TABLE IF NOT EXISTS agent_shared_memory (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       agent_id INTEGER NOT NULL,
@@ -367,6 +430,8 @@ function migrate(db: Database) {
     );
   `);
 
+  migrateAgentMemory(db);
+
   try {
     db.run(
       `CREATE INDEX IF NOT EXISTS idx_chat_embeddings_qq
@@ -376,12 +441,9 @@ function migrate(db: Database) {
     /* ignore */
   }
   try {
-    db.run(
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_live_inbox_msg
-       ON live_inbox(source_msg_id)`,
-    );
+    db.run(`DROP TABLE IF EXISTS live_inbox`);
   } catch {
-    /* 旧数据若有重复消息号，去重索引建不上也不挡启动 */
+    /* 旧库没有这张表 */
   }
 
   // 默认模块开关
@@ -456,6 +518,15 @@ function migrate(db: Database) {
   // 兼容旧库
   try {
     db.run(`ALTER TABLE chat_messages ADD COLUMN source_msg_id TEXT`);
+  } catch {
+    /* 已存在 */
+  }
+  try {
+    db.run(`ALTER TABLE import_batches ADD COLUMN agent_refreshed_at TEXT`);
+    // 只在加列的这一次把已有批次标成跟进过，避免凌晨把整份旧归档重炼一遍
+    db.run(
+      `UPDATE import_batches SET agent_refreshed_at = datetime('now') WHERE agent_refreshed_at IS NULL`,
+    );
   } catch {
     /* 已存在 */
   }
@@ -630,6 +701,14 @@ export async function withDb<T>(fn: (db: Database) => T): Promise<T> {
   const result = fn(db);
   persist(db);
   return result;
+}
+
+/**
+ * 整库落盘。sql.js 每次 persist 都要写整个文件，
+ * 一轮里连续写多条记忆时，由调用方攒完再喊一次，不要一句话一行。
+ */
+export async function flushDb(): Promise<void> {
+  persist(await getDb());
 }
 
 export function rowsFrom<T extends Record<string, SqlValue>>(

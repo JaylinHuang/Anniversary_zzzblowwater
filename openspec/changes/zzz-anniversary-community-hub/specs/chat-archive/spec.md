@@ -29,13 +29,13 @@
 - **WHEN** 版主将一条归档消息标记为金句
 - **THEN** 该消息进入精选池并可被其他模块引用
 
-### Requirement: OneBot live sync webhook
-系统 SHALL 提供受令牌保护的 OneBot/NapCat HTTP 上报端点；在配置了访问令牌后，可将指定群的新群聊消息脱敏写入实时归档批次。
+### Requirement: Manual archive import
+系统 SHALL 由管理员导入 zzz-archive JSON，并保留在归档里。不提供 QQ 群机器人实时上报。每天北京时间 04:00，若有尚未跟进的新批次，系统 SHALL 重炼相关分身并重建向量。
 
-#### Scenario: Ingest authenticated group message
-- **WHEN** 机器人使用正确访问令牌向 webhook 上报一条群消息，且群号符合配置（若已配置）
-- **THEN** 系统将该消息脱敏后写入活跃的实时同步批次，并可在群聊归档中检索
+#### Scenario: New import waits until 04:00
+- **WHEN** 管理员导入一份新的群聊 JSON
+- **THEN** 消息留在归档中，并在当天北京时间 04:00 之后跟进相关分身
 
-#### Scenario: Reject unauthorized webhook
-- **WHEN** 请求未携带正确访问令牌
-- **THEN** 系统拒绝入库并返回未授权错误
+#### Scenario: No bot webhook
+- **WHEN** 请求打到已删除的机器人上报地址
+- **THEN** 该地址不存在，消息不会进入归档

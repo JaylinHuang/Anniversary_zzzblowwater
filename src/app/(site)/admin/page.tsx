@@ -3,14 +3,11 @@ import { getSessionUser, isAdmin } from "@/lib/auth";
 import { getFeatureFlags } from "@/lib/modules";
 import { getDb, rowFrom, rowsFrom } from "@/lib/db";
 import { MODULE_META, type ModuleKey } from "@/lib/constants";
-import { getLiveSyncStatus } from "@/lib/onebot";
-import { getInboxStatus } from "@/lib/daily-flush";
 import { hasDbPassphrase } from "@/lib/passphrase";
 import { getSetupStatus } from "@/lib/setup-status";
 import { isPollOpen } from "@/lib/poll-rules";
 import { AdminClient } from "./AdminClient";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 
 export default async function AdminPage() {
   const user = await getSessionUser();
@@ -37,13 +34,7 @@ export default async function AdminPage() {
     enabled: flags[k],
   }));
 
-  const sync = await getLiveSyncStatus();
-  const inbox = await getInboxStatus();
   const setup = await getSetupStatus();
-  const h = await headers();
-  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
-  const proto = h.get("x-forwarded-proto") || "http";
-  const webhookUrl = `${proto}://${host}/api/webhooks/onebot`;
 
   const pollDetails = rowsFrom<{
     id: number;
@@ -92,7 +83,7 @@ export default async function AdminPage() {
       code="HDD-ADM"
       channel="ADMIN"
       title="管理后台"
-        lede="模块开关、统计隐私、投票明细、群消息每天凌晨更新。"
+        lede="模块开关、统计隐私、投票明细。新导入的群聊在每天凌晨四点跟进。"
     >
       <AdminClient
         modules={modules}
@@ -101,22 +92,6 @@ export default async function AdminPage() {
         setup={setup}
         passphraseDbManaged={passphraseDbManaged}
         pollDetails={pollDetails}
-        onebot={{
-          configured: sync.configured,
-          groupId: sync.groupId,
-          webhookUrl,
-          pending: inbox.pending,
-          lastFlushAt: inbox.lastFlushAt,
-          batch: sync.batch
-            ? {
-                id: sync.batch.id,
-                messageCount: Number(sync.batch.message_count),
-                timeStart: sync.batch.time_start,
-                timeEnd: sync.batch.time_end,
-                status: sync.batch.status,
-              }
-            : null,
-        }}
       />
     </PageStage>
   );

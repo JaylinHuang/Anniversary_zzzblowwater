@@ -1,8 +1,32 @@
 import { LOCAL_EMBED_MODEL, localEmbed } from "@/lib/local-embed";
 
+/** 模型发起的一次工具调用。arguments 是模型给的 JSON 字符串，原样保留 */
+export type ToolCallRequest = {
+  id: string;
+  name: string;
+  arguments: string;
+};
+
 export type ChatMessage = {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** 助手这一步发起的工具调用。回灌给模型时必须原样带上，否则工具结果对不上号 */
+  toolCalls?: ToolCallRequest[];
+  /** 工具结果所回应的那次调用编号，role 为 tool 时必填 */
+  toolCallId?: string;
+};
+
+/** OpenAI 兼容的工具声明（DeepSeek 用的是同一套 tools / tool_calls） */
+export type LlmToolSpec = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
+/** 一次模型请求的结果：可能是给用户的话，也可能只是一串工具调用 */
+export type ChatTurnResult = {
+  content: string;
+  toolCalls: ToolCallRequest[];
 };
 
 export type LlmConfig = {
@@ -162,13 +186,61 @@ function explainEmbeddingHttpError(status: number, body: string): string {
   return `向量接口返回 ${status}${brief ? `：${brief}` : ""}，索引未建立。`;
 }
 
-/** OpenAI 兼容 Chat Completions（DeepSeek / 月之暗面 / 通义等均可） */
-export async function chatCompletion(
+/** 内部消息转成 OpenAI 线上格式。工具相关字段只在用到时才出现 */
+function toWireMessage(msg: ChatMessage): Record<string, unknown> {
+  if (msg.role === "tool") {
+    return {
+      role: "tool",
+      tool_call_id: msg.toolCallId || "",
+      content: msg.content,
+    };
+  }
+  if (msg.role === "assistant" && msg.toolCalls?.length) {
+    return {
+      role: "assistant",
+      content: msg.content || null,
+      tool_calls: msg.toolCalls.map((call) => ({
+        id: call.id,
+        type: "function",
+        function: { name: call.name, arguments: call.arguments },
+      })),
+    };
+  }
+  return { role: msg.role, content: msg.content };
+}
+
+/**
+ * OpenAI 兼容 Chat Completions，带工具调用。
+ * 不传 tools 时和原来的纯文本请求完全一样。
+ */
+export async function chatCompletionWithTools(
   messages: ChatMessage[],
-  options?: { temperature?: number; maxTokens?: number },
-): Promise<string> {
+  options?: {
+    temperature?: number;
+    maxTokens?: number;
+    tools?: LlmToolSpec[];
+  },
+): Promise<ChatTurnResult> {
   const cfg = getLlmConfig();
   if (!cfg) throw new Error("LLM_NOT_CONFIGURED");
+
+  const body: Record<string, unknown> = {
+    model: cfg.model,
+    messages: messages.map(toWireMessage),
+    temperature: options?.temperature ?? 0.8,
+    max_tokens: options?.maxTokens ?? 800,
+  };
+  if (options?.tools?.length) {
+    body.tools = options.tools.map((tool) => ({
+      type: "function",
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      },
+    }));
+    body.tool_choice = "auto";
+  }
 
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: "POST",
@@ -176,12 +248,7 @@ export async function chatCompletion(
       "Content-Type": "application/json",
       Authorization: `Bearer ${cfg.apiKey}`,
     },
-    body: JSON.stringify({
-      model: cfg.model,
-      messages,
-      temperature: options?.temperature ?? 0.8,
-      max_tokens: options?.maxTokens ?? 800,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -190,11 +257,37 @@ export async function chatCompletion(
   }
 
   const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
+    choices?: Array<{
+      message?: {
+        content?: string | null;
+        tool_calls?: Array<{
+          id?: string;
+          function?: { name?: string; arguments?: string };
+        }>;
+      };
+    }>;
   };
-  const content = data.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("LLM_EMPTY_RESPONSE");
-  return content;
+  const message = data.choices?.[0]?.message;
+  const content = (message?.content || "").trim();
+  const toolCalls: ToolCallRequest[] = (message?.tool_calls || [])
+    .map((call, index) => ({
+      id: call.id || `call_${index}`,
+      name: call.function?.name || "",
+      arguments: call.function?.arguments || "{}",
+    }))
+    .filter((call) => Boolean(call.name));
+  if (!content && !toolCalls.length) throw new Error("LLM_EMPTY_RESPONSE");
+  return { content, toolCalls };
+}
+
+/** 只要文本的老调用方继续用这个：返回值仍是字符串 */
+export async function chatCompletion(
+  messages: ChatMessage[],
+  options?: { temperature?: number; maxTokens?: number },
+): Promise<string> {
+  const out = await chatCompletionWithTools(messages, options);
+  if (!out.content) throw new Error("LLM_EMPTY_RESPONSE");
+  return out.content;
 }
 
 export async function chatCompletionJson<T>(

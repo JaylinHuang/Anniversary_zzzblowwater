@@ -149,6 +149,22 @@ export async function indexEmbeddingsForQq(qq: string): Promise<{
   return { indexed: todo.length, model: backend.model, local: backend.local };
 }
 
+/** 和管理员以前点的「重建向量索引」同一条路：清掉该模型的旧向量，再按近期发言重建 */
+export async function rebuildEmbeddingsForQq(qq: string): Promise<{
+  indexed: number;
+  model: string;
+  local: boolean;
+}> {
+  const backend = await resolveEmbedBackend();
+  await withDb((db) => {
+    db.run(`DELETE FROM chat_embeddings WHERE qq_number = ? AND model = ?`, [
+      qq,
+      backend.model,
+    ]);
+  });
+  return indexEmbeddingsForQq(qq);
+}
+
 /** 按用户问题检索该群友相关历史发言 */
 export async function retrieveRagForQq(
   qq: string,

@@ -74,7 +74,7 @@ export function AgentsRosterClient({
       {canManage ? (
         <>
           <p className="text-[var(--fog)]">
-            设定显示名与插画，绑定 QQ。OneBot / 归档会持续收录该 QQ 群聊。
+            设定显示名与插画，绑定 QQ。群聊靠归档页导入的 JSON 收录。
           </p>
           <form onSubmit={createAgent} className="grid gap-3 md:grid-cols-2">
             <input
@@ -131,47 +131,6 @@ export function AgentAdminActions({
 
   if (!canManage) return null;
 
-  async function rebuild() {
-    setBusy(true);
-    try {
-      const data = await apiFetch<{ sourceMsgCount: number }>("/api/agents", {
-        method: "POST",
-        body: JSON.stringify({ action: "rebuild-persona", id }),
-      });
-      success(`已重炼人设 · 语料 ${data.sourceMsgCount} 条`);
-      router.refresh();
-    } catch (err) {
-      error(err instanceof Error ? err.message : "重炼失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function reindexRag() {
-    const ok = await confirm({
-      title: "重建向量索引",
-      message:
-        "将按该群友近期发言生成 embedding（默认最多约 500 条）。需已配置可用的 Embeddings 接口。",
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      const data = await apiFetch<{
-        indexed: number;
-        model: string;
-        notice?: string;
-      }>("/api/agents", {
-        method: "POST",
-        body: JSON.stringify({ action: "reindex-rag", id }),
-      });
-      success(data.notice || `已索引 ${data.indexed} 条 · ${data.model}`);
-    } catch (err) {
-      error(err instanceof Error ? err.message : "索引失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function remove() {
     const ok = await confirm({
       title: "停用 Agent",
@@ -195,22 +154,6 @@ export function AgentAdminActions({
 
   return (
     <div className="mt-3 flex flex-wrap gap-2">
-      <button
-        type="button"
-        className="btn btn-ghost"
-        disabled={busy}
-        onClick={() => void rebuild()}
-      >
-        重炼人设
-      </button>
-      <button
-        type="button"
-        className="btn btn-ghost"
-        disabled={busy}
-        onClick={() => void reindexRag()}
-      >
-        重建向量索引
-      </button>
       <button
         type="button"
         className="btn btn-ghost"

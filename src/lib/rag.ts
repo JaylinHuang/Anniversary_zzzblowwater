@@ -3,6 +3,7 @@ import { isAgentCorpusText } from "@/lib/chat-parser";
 import { ragIndexPerQq, ragTopK } from "@/lib/constants";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
 import { embedTexts, resolveEmbedBackend } from "@/lib/llm";
+import { loadSpreadMessages, pickSpreadIds } from "@/lib/corpus-sample";
 import { normalizeText, rerankHits } from "@/lib/rag-rerank";
 
 function cosine(a: number[], b: number[]): number {
@@ -26,7 +27,7 @@ export type RagHit = {
   score: number;
 };
 
-/** 本地索引覆盖全年，云端仍按条数上限控制费用 */
+/** 索引按全年均匀抽，条数仍有上限，避免一次载入全部发言 */
 let botEmbeddingsPurged = false;
 
 /** 删掉机器人自己的向量。不做全文 LIKE，那会把整库扫进内存 */
@@ -69,24 +70,24 @@ export async function indexEmbeddingsForQq(qq: string): Promise<{
   if (botSpeaker || isBotGroupName(qq)) {
     return { indexed: 0, model: backend.model, local: backend.local };
   }
-  // 只取最近一小段。按时间倒序读进来，筛掉机器人腔之后再截断，避免一次载入全部发言
+  // 一半留给最近的话，一半铺到更早的月份。抽中后再读正文
   const cap = Math.min(ragIndexPerQq(), 400);
-  const rows = rowsFrom<{
-    id: number;
-    content: string;
-    sent_at: string | null;
-  }>(
+  let rows = loadSpreadMessages(
     db,
-    `SELECT m.id, m.content, m.sent_at
-     FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' AND m.qq_number = ?
-     ORDER BY m.id DESC
-     LIMIT ?`,
-    [qq, cap * 2],
-  )
-    .filter((r) => isAgentCorpusText(r.content))
-    .slice(0, cap);
+    qq,
+    Math.floor(cap * 0.6),
+    Math.floor(cap * 0.5),
+  ).filter((row) => isAgentCorpusText(row.content));
+  if (rows.length > cap) {
+    const keep = new Set(
+      pickSpreadIds(
+        rows.map((row) => row.id),
+        Math.floor(cap * 0.55),
+        Math.floor(cap * 0.45),
+      ),
+    );
+    rows = rows.filter((row) => keep.has(row.id));
+  }
   const uniqueRows = dedupeIndexRows(rows);
 
   if (!uniqueRows.length) {

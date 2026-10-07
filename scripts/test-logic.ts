@@ -11,6 +11,7 @@ import { parseQceXlsx } from "../src/lib/chat-xlsx";
 import { archiveFromQceExporter, parseArchiveJson } from "../src/lib/chat-json";
 import { localEmbed } from "../src/lib/local-embed";
 import { pickPersonaSamples } from "../src/lib/roster";
+import { pickSpreadIds } from "../src/lib/corpus-sample";
 import { formatGroupRecallBlock, matchSpeakersInTalk, recallNameTokens } from "../src/lib/group-recall";
 import { rerankHits } from "../src/lib/rag-rerank";
 import { replyTemperature, AGENT_HARD_RULES, formatSpeakerIdentity, sameQq, correctSelfReply, correctOtherReply } from "../src/lib/agent-crew";
@@ -158,6 +159,18 @@ async function main() {
     assert.ok(dot(same, same) > 0.99);
     assert.ok(dot(same, near) > dot(same, far));
     ok("人设按时间抽样，本地向量能分开不同话题");
+  }
+
+  {
+    const ids = Array.from({ length: 10000 }, (_, i) => i + 1);
+    const spread = pickSpreadIds(ids, 160, 40);
+    assert.ok(spread.includes(1));
+    assert.ok(spread.includes(10000));
+    assert.ok(spread.some((id) => id > 4000 && id < 6000));
+    assert.ok(spread.length < 400);
+    const few = pickSpreadIds([1, 2, 3, 4, 5], 120, 40);
+    assert.deepStrictEqual(few, [1, 2, 3, 4, 5]);
+    ok("全年均匀抽样会留住中间，条数很少时全部留下");
   }
 
   {

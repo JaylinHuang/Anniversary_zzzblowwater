@@ -2,6 +2,7 @@ import { contentMentionsBot, isBotGroupName } from "@/lib/bot-chat";
 import { mentionSamplesForQq } from "@/lib/group-recall";
 import { agentPersonaSampleSize, GROUP_NAME } from "@/lib/constants";
 import { isAgentCorpusText } from "@/lib/chat-parser";
+import { loadSpreadMessages } from "@/lib/corpus-sample";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
 import {
   chatCompletion,
@@ -108,31 +109,10 @@ async function buildBasePersona(
 ) {
   const db = await getDb();
   const sampleSize = agentPersonaSampleSize();
-  // 只取开头一小段和最近一小段，避免把这个人的全部发言读进内存
-  const recent = rowsFrom<{ content: string }>(
-    db,
-    `SELECT m.content AS content FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' AND m.qq_number = ?
-     ORDER BY m.id DESC
-     LIMIT ?`,
-    [qq, Math.max(sampleSize, 80)],
-  )
-    .map((r) => r.content)
-    .filter(isAgentCorpusText)
-    .reverse();
-  const older = rowsFrom<{ content: string }>(
-    db,
-    `SELECT m.content AS content FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' AND m.qq_number = ?
-     ORDER BY m.id ASC
-     LIMIT ?`,
-    [qq, 40],
-  )
-    .map((r) => r.content)
+  // 全年均匀抽，再留最近一段。正文只取抽中的那几百条
+  const corpus = loadSpreadMessages(db, qq, sampleSize * 2, 40)
+    .map((row) => row.content)
     .filter(isAgentCorpusText);
-  const corpus = [...older, ...recent.filter((line) => !older.includes(line))];
   const samples = pickPersonaSamples(corpus, sampleSize);
 
   const quotes = samples

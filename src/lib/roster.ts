@@ -1,4 +1,5 @@
 import { contentMentionsBot, isBotGroupName } from "@/lib/bot-chat";
+import { mentionSamplesForQq } from "@/lib/group-recall";
 import { agentPersonaSampleSize, GROUP_NAME } from "@/lib/constants";
 import { isAgentCorpusText, isCountableTextMessage } from "@/lib/chat-parser";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
@@ -125,6 +126,11 @@ async function buildBasePersona(
     .filter((m) => m.length >= 4 && m.length <= 80)
     .slice(-5);
 
+  const heard =
+    samples.length >= 5
+      ? await mentionSamplesForQq(qq, displayName).catch(() => [])
+      : [];
+
   if (isLlmConfigured() && samples.length >= 5) {
     try {
       const parsed = await chatCompletionJson<{
@@ -136,14 +142,20 @@ async function buildBasePersona(
         [
           {
             role: "system",
-            content: `你是角色设定助手。根据「${GROUP_NAME}」里这个人自己的发言，写一份能让模型模仿他说话的设定。只输出 JSON：style_tags, summary, system_prompt, sample_quotes。system_prompt 用中文，规定句长、语气词、口头禅、爱聊的话题和避讳，并写明他碰到没聊过的话题时会怎么给看法。要像在描述这个人怎么开口，不要写成温柔客服或人物小传，也不要要求他只会复读样本原句。sample_quotes 必须是样本里的原句，不要改写。禁止人身攻击，不要编造样本里没有的隐私。`,
+            content: `你是角色设定助手。根据「${GROUP_NAME}」里这个人自己的发言，以及群里别人怎么提到他，写一份能让模型模仿他说话的设定。只输出 JSON：style_tags, summary, system_prompt, sample_quotes。system_prompt 用中文，规定句长、语气词、口头禅、爱聊的话题和避讳。他是泡在这个群里的人：说话用他自己的口气，但要像真的听过群里这些人和梗。不要写成温柔客服或人物小传，不要要求他只会复读自己的原句，也不要引用网站名片。sample_quotes 必须是他本人样本里的原句，不要改写。禁止人身攻击，不要编造样本里没有的隐私。`,
           },
           {
             role: "user",
-            content: `昵称：${displayName}\nQQ：${qq}\n文本条数约：${textCount}\n样本从早到晚，后半段更近：\n${samples
+            content: `昵称：${displayName}\nQQ：${qq}\n文本条数约：${textCount}\n他本人的样本从早到晚，后半段更近：\n${samples
               .slice(0, 80)
               .map((s, i) => `${i + 1}. ${s}`)
-              .join("\n")}`,
+              .join("\n")}${
+              heard.length
+                ? `\n群里别人提到他的话（只用来知道他在群里的位置，不要写成他的原句）：\n${heard
+                    .map((line, i) => `${i + 1}. ${line}`)
+                    .join("\n")}`
+                : ""
+            }`,
           },
         ],
         { temperature: 0.3, maxTokens: 1400 },

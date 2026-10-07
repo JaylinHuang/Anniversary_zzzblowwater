@@ -2,7 +2,7 @@
  * 工具注册表。借 DeepSeek Harness 的分层：回路只认注册表，不认具体实现。
  *
  * 本站不是编程助手，所以注册表里只有四件事：
- * 查自己这位用户的长期记忆、写或覆盖一条记忆、翻这个分身自己的群聊原话、记一条本轮工作记忆。
+ * 查自己这位用户的长期记忆、写或覆盖一条记忆、在整个群聊里找是谁说了什么、记一条本轮工作记忆。
  * 没有 shell、没有读写文件、不跑代码、不联网搜索。
  */
 import type { LlmToolSpec } from "@/lib/llm";
@@ -166,7 +166,7 @@ export function buildToolRegistry(): ToolDef[] {
     {
       name: "search_group_lines",
       description:
-        "想起你自己在群里说过什么。只返回你本人的发言，用来回忆，不要把结果整句贴成回复。",
+        "在整个群聊里找某个人或某件事。返回的每条都会写明是谁说的，用来形成印象，不要整句贴成回复。",
       parameters: {
         type: "object",
         properties: {
@@ -181,10 +181,10 @@ export function buildToolRegistry(): ToolDef[] {
         const limit = clampLimit(readNumber(args, "limit"), 5, 10);
         const lines = await ctx.ports.searchGroupLines(query, limit);
         if (!lines.length) {
-          return `关于「${query}」，你没在群里说过这件事。对方要看法就按你的口气说你怎么想；对方要核对具体事实就说不记得，不要编时间、数字和约定。`;
+          return `关于「${query}」，群聊里没有对上的发言。具体战绩和水平不要编；问看法时也不要凭空安一个性格。`;
         }
         return [
-          `关于「${query}」，你以前说过这些。用来回忆你的态度，不要整句贴回去当回复：`,
+          `关于「${query}」，群聊里有这些发言。用来形成印象，不要整句贴回去：`,
           ...lines.map((line, i) => `${i + 1}. ${line}`),
         ].join("\n");
       },

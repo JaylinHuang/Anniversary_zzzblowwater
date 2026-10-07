@@ -57,6 +57,7 @@ import {
 } from "@/lib/memory-score";
 import { isAgentCorpusText } from "@/lib/chat-parser";
 import { chatCompletion, chatCompletionWithTools, isLlmConfigured } from "@/lib/llm";
+import { collectGroupRecall, formatGroupRecallBlock } from "@/lib/group-recall";
 import { retrieveRagForQq } from "@/lib/rag";
 import { listAgentGroupChat } from "@/lib/roster";
 import { formatSpeakStyle, loadSpeakStyle } from "@/lib/speak-stats";
@@ -91,7 +92,7 @@ const TOOL_GUIDE = [
   "你有四件工具，别的一概没有：",
   "- search_memory：查你和当前这位用户之间的长期记忆。记不清就先查，不要凭空补。",
   "- remember：对面说「记住」「请记住」「别忘了」时，把那条事实写下来。同一件事改口了，用它覆盖，不要让两种说法同时存在；不同的事（比如对花生过敏和不吃香菜）各记各的，不要互相覆盖。",
-  "- search_group_lines：想起你自己在群里说过什么。查到的句子是记忆，不是台词，不要整段贴进回复。",
+  "- search_group_lines：在整个群聊里找某个人或某件事。结果会写明是谁说的，不只翻你自己的话，也不要整段贴进回复。",
   "- working_note：记这一轮的中间结论，只在这一轮有效。",
   "工具结果会回到这一轮，你可以接着再要一步。",
   "最后一条不带工具调用的回复才是发给用户的话：那一条里不要出现工具名、调用过程或括号里的旁白。",
@@ -113,6 +114,7 @@ export function buildTurnSystemPrompt(params: {
   workingBlock?: string;
   speakStyleText?: string;
   summaryNote?: string;
+  groupNote?: string;
 }): string {
   return [
     formatSpeakerIdentity(params.userName, params.userAliases, {
@@ -129,7 +131,8 @@ export function buildTurnSystemPrompt(params: {
     params.memoryBlock,
     params.workingBlock || "",
     params.summaryNote || "",
-    "这一轮怎么回：先接住对方刚说的那一句。问看法就给看法；问你没说过的具体事实就说不记得，不要编。群记录和工具结果都不是可以直接粘贴的回复。",
+    params.groupNote || "",
+    "这一轮怎么回：先接住对方刚说的那一句。问某个群友时，用上面群聊发言里这个人的说法形成印象，再用你的口气说出来。发言里没有的战绩和水平就说不记得。不要把别人的话当成你的经历，也不要整段粘贴。",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -160,16 +163,22 @@ export function planTurnMemory(params: {
   return draft ? { ...draft, explicit: false } : null;
 }
 
-/** 生产用的群聊原话检索：先走现有向量，再用关键词补一遍 */
+/** 生产用的群聊检索：先在整个群里对上人名，对不上再翻这个分身自己的原话 */
 export async function defaultGroupLines(
   qq: string,
   query: string,
   limit: number,
 ): Promise<string[]> {
+  try {
+    const recalled = await collectGroupRecall({ selfQq: qq, talk: query, limit });
+    if (recalled.lines.length) return recalled.lines.slice(0, limit);
+  } catch {
+    /* 全群检索失败时退回本人发言 */
+  }
   const out: string[] = [];
   try {
     for (const hit of await retrieveRagForQq(qq, query, limit)) {
-      if (hit.content && !out.includes(hit.content)) out.push(hit.content);
+      if (hit.content && !out.includes(hit.content)) out.push(`你自己说过：${hit.content}`);
     }
   } catch {
     /* 向量不可用时只走关键词 */
@@ -180,7 +189,8 @@ export async function defaultGroupLines(
       if (out.length >= limit) break;
       if (!isAgentCorpusText(row.content)) continue;
       if (!keys.some((key) => row.content.includes(key))) continue;
-      if (!out.includes(row.content)) out.push(row.content);
+      const line = `你自己说过：${row.content}`;
+      if (!out.includes(line)) out.push(line);
     }
   }
   return out.slice(0, limit);
@@ -560,6 +570,18 @@ export async function runMemberTurnDetailed(params: {
   const speakStyle = deps.db
     ? null
     : await loadSpeakStyle(params.agent.qq).catch(() => null);
+  const talk = [
+    ...params.history
+      .filter((line) => line.role === "user")
+      .slice(-4)
+      .map((line) => line.content),
+    params.userText,
+  ].join("\n");
+  const groupNote = deps.db
+    ? ""
+    : await collectGroupRecall({ selfQq: params.agent.qq, talk, limit: 8 })
+        .then((found) => formatGroupRecallBlock(found.names, found.lines))
+        .catch(() => "");
   const system = buildTurnSystemPrompt({
     agentName: params.agent.display_name,
     systemPrompt: params.agent.system_prompt,
@@ -581,6 +603,7 @@ export async function runMemberTurnDetailed(params: {
     ]
       .filter(Boolean)
       .join("\n"),
+    groupNote,
   });
 
   // 4. 多步工具回路

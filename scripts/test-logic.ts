@@ -11,6 +11,7 @@ import { parseQceXlsx } from "../src/lib/chat-xlsx";
 import { archiveFromQceExporter, parseArchiveJson } from "../src/lib/chat-json";
 import { localEmbed } from "../src/lib/local-embed";
 import { pickPersonaSamples } from "../src/lib/roster";
+import { formatGroupRecallBlock, matchSpeakersInTalk, recallNameTokens } from "../src/lib/group-recall";
 import { rerankHits } from "../src/lib/rag-rerank";
 import { replyTemperature, AGENT_HARD_RULES, formatSpeakerIdentity, sameQq, correctSelfReply, correctOtherReply } from "../src/lib/agent-crew";
 import { formatSpeakStyle, summarizeSpeakStyle } from "../src/lib/speak-stats";
@@ -208,7 +209,32 @@ async function main() {
     assert.ok(replyTemperature("来句闲聊") > 0.55);
     assert.ok(AGENT_HARD_RULES.includes("一个字都不要补"));
     assert.ok(AGENT_HARD_RULES.includes("给看法"));
+    assert.ok(AGENT_HARD_RULES.includes("群聊归档"));
     assert.ok(!AGENT_HARD_RULES.includes("这我没在群里确认过"));
+    const speakers = [
+      { name: "牢火", qq: "10001" },
+      { name: "火", qq: "10002" },
+      { name: "群友", qq: "10003" },
+    ];
+    const matched = matchSpeakersInTalk(
+      "你觉得牢火这个群友怎么样\n他打绝区零厉害吗",
+      speakers,
+    );
+    assert.deepStrictEqual(
+      matched.map((item) => item.name),
+      ["牢火"],
+    );
+    assert.deepStrictEqual(
+      recallNameTokens("你觉得牢火这个群友怎么样\n他打绝区零厉害吗"),
+      ["牢火"],
+    );
+    const block = formatGroupRecallBlock(
+      ["牢火"],
+      ["「牢火」说过：这把打完了"],
+    );
+    assert.ok(block.includes("「牢火」说过：这把打完了"));
+    assert.ok(block.includes("群聊归档"));
+    assert.strictEqual(formatGroupRecallBlock([], []), "");
     const clipped = summarizeSpeakStyle(["嗯", "好", "在吗", "哈哈", "行", "睡了", "到了", "？"]);
     assert.ok(clipped);
     assert.ok(clipped!.avgLen < 10);

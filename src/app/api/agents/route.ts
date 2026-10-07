@@ -205,6 +205,10 @@ export async function POST(req: Request) {
         userId: user.id,
         agentId,
         content,
+        recallToken:
+          typeof body.recallToken === "string" && body.recallToken.length <= 12000
+            ? body.recallToken
+            : undefined,
       });
       return NextResponse.json({ ok: true, ...result, groupName: GROUP_NAME });
     }

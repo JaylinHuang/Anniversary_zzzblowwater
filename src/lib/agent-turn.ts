@@ -58,9 +58,10 @@ import {
 import { isAgentCorpusText } from "@/lib/chat-parser";
 import { chatCompletion, chatCompletionWithTools, isLlmConfigured } from "@/lib/llm";
 import { collectGroupRecall, formatGroupRecallBlock } from "@/lib/group-recall";
-import { applyPersonaPatch } from "@/lib/fact-timeline";
+import { applyPersonaPatch, topicNeedles } from "@/lib/fact-timeline";
+import { openRecall, sameNeedles, sealRecall } from "@/lib/recall-cache";
 import { retrieveRagForQq } from "@/lib/rag";
-import { listAgentGroupChat, saveAgentPersonaPrompt } from "@/lib/roster";
+import { listAgentGroupChat } from "@/lib/roster";
 import { formatSpeakStyle, loadSpeakStyle } from "@/lib/speak-stats";
 
 /** 短期记忆就是这个窗口。超过这么多条就把旧的压成长期摘要 */
@@ -480,6 +481,8 @@ export type TurnResult = {
   hitCap: boolean;
   /** 这一轮写了几条长期记忆 */
   written: number;
+  /** 给浏览器存着的检索回执。同一话题下次带上，服务器就不再扫归档 */
+  recallToken?: string;
 };
 
 /**
@@ -502,6 +505,8 @@ export async function runMemberTurnDetailed(params: {
   history: { id?: number; role: string; content: string }[];
   /** 当前私聊会话 id。带上它，窗口压缩才会记水位、会话摘要才会就地更新 */
   sessionId?: number;
+  /** 浏览器带回的检索回执。验签失败就当没有 */
+  recallToken?: string;
   deps?: TurnDeps;
 }): Promise<TurnResult> {
   const deps = params.deps || {};
@@ -593,29 +598,46 @@ export async function runMemberTurnDetailed(params: {
   ].join("\n");
   let systemPrompt = params.agent.system_prompt;
   let groupNote = "";
+  let recallToken: string | undefined;
+  let personaSql: string | null = null;
   if (!deps.db) {
-    const found = await collectGroupRecall({
-      selfQq: params.agent.qq,
-      selfName: params.agent.display_name,
-      talk,
-      focus: params.userText,
-      persona: systemPrompt,
-      limit: 8,
-    }).catch(() => ({
-      names: [] as string[],
-      lines: [] as string[],
-      personaPatch: null as string | null,
-    }));
-    if (found.personaPatch) {
-      const next = applyPersonaPatch(systemPrompt, found.personaPatch);
-      if (next !== systemPrompt) {
-        systemPrompt = next;
-        await saveAgentPersonaPrompt(params.agent.id, systemPrompt).catch(() => {
-          /* 这一轮先按较新的发言回答，写不回人设也不要打断 */
+    const needles = topicNeedles(params.userText, [params.agent.display_name]);
+    const cached = params.recallToken
+      ? openRecall(params.recallToken, params.agent.id)
+      : null;
+    if (cached && sameNeedles(cached.needles, needles)) {
+      groupNote = formatGroupRecallBlock(cached.names, cached.lines);
+      recallToken = params.recallToken;
+    } else {
+      const found = await collectGroupRecall({
+        selfQq: params.agent.qq,
+        selfName: params.agent.display_name,
+        talk,
+        focus: params.userText,
+        persona: systemPrompt,
+        limit: 8,
+      }).catch(() => ({
+        names: [] as string[],
+        lines: [] as string[],
+        personaPatch: null as string | null,
+      }));
+      if (found.personaPatch) {
+        const next = applyPersonaPatch(systemPrompt, found.personaPatch);
+        if (next !== systemPrompt) {
+          systemPrompt = next;
+          personaSql = next;
+        }
+      }
+      groupNote = formatGroupRecallBlock(found.names, found.lines);
+      if (needles.length) {
+        recallToken = sealRecall({
+          agentId: params.agent.id,
+          needles,
+          names: found.names,
+          lines: found.lines,
         });
       }
     }
-    groupNote = formatGroupRecallBlock(found.names, found.lines);
   }
   const system = buildTurnSystemPrompt({
     agentName: params.agent.display_name,
@@ -736,9 +758,16 @@ export async function runMemberTurnDetailed(params: {
       now,
     });
   }
+  if (personaSql) {
+    db.run(
+      `UPDATE agent_personas SET system_prompt = ?, updated_at = datetime('now') WHERE id = ?`,
+      [personaSql, agentId],
+    );
+    written++;
+  }
   await flush();
 
-  return { reply: reply.trim(), turnId, steps, calls, hitCap, written };
+  return { reply: reply.trim(), turnId, steps, calls, hitCap, written, recallToken };
 }
 
 /** 私聊调用口：只要那句话 */

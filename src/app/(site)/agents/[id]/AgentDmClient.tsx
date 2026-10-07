@@ -98,6 +98,23 @@ export function AgentDmClient({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sending = useRef(false);
   const quotaFull = quota.used >= quota.limit;
+  const cacheKey = `zzz-recall-${agentId}`;
+
+  function readRecallToken() {
+    try {
+      return sessionStorage.getItem(cacheKey) || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function writeRecallToken(token: string) {
+    try {
+      sessionStorage.setItem(cacheKey, token);
+    } catch {
+      /* 浏览器不许写本地缓存时，下次仍走服务器慢查 */
+    }
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -119,14 +136,21 @@ export function AgentDmClient({
         sessionId?: number;
         reply: string;
         quota?: { used: number; limit: number };
+        recallToken?: string;
       }>("/api/agents", {
         method: "POST",
-        body: JSON.stringify({ action: "dm", agentId, content: text }),
+        body: JSON.stringify({
+          action: "dm",
+          agentId,
+          content: text,
+          recallToken: readRecallToken(),
+        }),
       });
       if (data.sessionId) setSessionId(data.sessionId);
       if (data.quota) {
         setQuota({ used: data.quota.used, limit: data.quota.limit });
       }
+      if (data.recallToken) writeRecallToken(data.recallToken);
       setMessages((prev) => [
         ...prev,
         {
@@ -244,13 +268,14 @@ export function AgentDmClient({
           {busy ? (
             <div className="qq-row">
               <Face name={agentName} src={agentAvatar} />
-              <div className="qq-bubble qq-typing" aria-label="正在输入">
+              <div className="qq-bubble qq-typing" aria-label="正在翻群聊">
                 <span />
                 <span />
                 <span />
               </div>
             </div>
           ) : null}
+          {busy ? <p className="qq-empty">正在翻群聊，会多等一会儿</p> : null}
           <div ref={endRef} />
         </div>
 

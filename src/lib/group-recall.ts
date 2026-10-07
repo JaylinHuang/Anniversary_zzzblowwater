@@ -332,13 +332,16 @@ async function linesAboutTopic(
   const push = (line: DatedLine) => {
     if (!merged.some((item) => item.id === line.id)) merged.push(line);
   };
-  // 先看最近的段。话题很密时到上限就停，避免一次扫完全表
+  const oldest = windows[0];
+  let sawOldest = false;
+  // 先看最近的段。每段之间让出事件循环，方便回收上一段的临时内存
   for (const [lo, hi] of [...windows].reverse()) {
+    if (oldest && lo === oldest[0] && hi === oldest[1]) sawOldest = true;
     for (const line of await topicWindow(qq, names, needles, lo, hi)) push(line);
     if (merged.length >= 36) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  const oldest = windows[0];
-  if (oldest) {
+  if (oldest && !sawOldest) {
     for (const line of await topicWindow(qq, names, needles, oldest[0], oldest[1])) {
       push(line);
     }

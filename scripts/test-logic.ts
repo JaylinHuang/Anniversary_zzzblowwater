@@ -13,6 +13,7 @@ import { localEmbed } from "../src/lib/local-embed";
 import { pickPersonaSamples } from "../src/lib/roster";
 import { pickSpreadIds } from "../src/lib/corpus-sample";
 import { idWindows } from "../src/lib/group-recall";
+import { openRecall, sameNeedles, sealRecall } from "../src/lib/recall-cache";
 import {
   applyPersonaPatch,
   judgeTimeline,
@@ -240,6 +241,17 @@ async function main() {
     assert.ok(sampled.length <= 80);
     assert.strictEqual(sampled[0][0], 1);
     assert.strictEqual(sampled[sampled.length - 1][1], 1_000_000);
+    const token = sealRecall({
+      agentId: 2,
+      needles: ["高中", "初中"],
+      names: ["牢火"],
+      lines: ["你自己在 2025-09-01 12:00 说过：我现在高二了"],
+    });
+    const opened = openRecall(token, 2);
+    assert.ok(opened);
+    assert.ok(sameNeedles(opened!.needles, ["初中", "高中"]));
+    assert.strictEqual(openRecall(token, 9), null);
+    assert.strictEqual(openRecall(`${token}x`, 2), null);
     ok("问自己也会对上话题，矛盾时以较新的时间更新人设");
   }
 

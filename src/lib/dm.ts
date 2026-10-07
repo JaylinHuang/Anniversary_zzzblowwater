@@ -2,7 +2,7 @@ import { agentDmDailyLimit } from "@/lib/constants";
 import { countUserDmTurnsTodaySync } from "@/lib/dm-limit";
 import { todayKey } from "@/lib/date-key";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
-import { runMemberTurn } from "@/lib/agent-turn";
+import { runMemberTurnDetailed } from "@/lib/agent-turn";
 import { getAgentById, listUserSenderNames } from "@/lib/roster";
 
 export async function getOrCreateActiveSession(userId: number, agentId: number) {
@@ -71,6 +71,7 @@ export async function sendDm(params: {
   userId: number;
   agentId: number;
   content: string;
+  recallToken?: string;
 }) {
   const agent = await getAgentById(params.agentId);
   if (!agent) throw new Error("Agent 不存在");
@@ -112,8 +113,9 @@ export async function sendDm(params: {
   let history: Awaited<ReturnType<typeof listSessionMessages>>;
   let reply: string;
   let turnCount: number;
+  let recallToken: string | undefined;
   try {
-    ({ history, reply, turnCount } = await generateAndStoreReply());
+    ({ history, reply, turnCount, recallToken } = await generateAndStoreReply());
   } catch (err) {
     // 发送失败：撤回刚写入的那句用户消息，不占额度、不留在对话里
     await withDb((db) => {
@@ -138,7 +140,7 @@ export async function sendDm(params: {
     const userQq = speaker?.qq_number?.trim() || null;
     const userAliases = await listUserSenderNames(userQq, userName);
     // 一轮多步工具回路：记忆分层和工具调用都在 agent-turn 里
-    const reply = await runMemberTurn({
+    const turn = await runMemberTurnDetailed({
       agent: agent!,
       userId: params.userId,
       userName,
@@ -147,7 +149,9 @@ export async function sendDm(params: {
       userText: text,
       history: history.slice(0, -1),
       sessionId: session.id,
+      recallToken: params.recallToken,
     });
+    const reply = turn.reply;
 
     const turnCount = await withDb((db) => {
       db.run(
@@ -168,7 +172,7 @@ export async function sendDm(params: {
       );
     });
 
-    return { history, reply, turnCount };
+    return { history, reply, turnCount, recallToken: turn.recallToken };
   }
 
   return {
@@ -181,5 +185,6 @@ export async function sendDm(params: {
       limit: quota.limit,
       remaining: Math.max(0, quota.remaining - 1),
     },
+    recallToken: recallToken || undefined,
   };
 }

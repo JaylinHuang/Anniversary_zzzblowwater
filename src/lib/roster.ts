@@ -289,7 +289,7 @@ export async function createManualAgent(params: {
     )!.id;
   });
 
-  return { id, qq, displayName, illustrationUrl, sourceMsgCount: textCount };
+  return { id, qq, displayName, illustrationUrl, sourceMsgCount: textCount, ...(await indexAgentQq(qq)) };
 }
 
 /** Admin：更新姓名 / 插画 / 换绑 QQ */
@@ -354,6 +354,7 @@ export async function updateManualAgent(params: {
         ],
       );
     });
+    await indexAgentQq(qq);
   } else {
     await withDb((db) => {
       db.run(
@@ -367,6 +368,20 @@ export async function updateManualAgent(params: {
   }
 
   return getAgentById(params.id);
+}
+
+/** 按这个 QQ 在已导入归档里的发言建向量。人设在创建时已经炼过 */
+async function indexAgentQq(qq: string): Promise<{ indexed: number; indexWarning: string }> {
+  try {
+    const { rebuildEmbeddingsForQq } = await import("@/lib/rag");
+    const result = await rebuildEmbeddingsForQq(qq);
+    return { indexed: result.indexed, indexWarning: "" };
+  } catch (error) {
+    return {
+      indexed: 0,
+      indexWarning: error instanceof Error ? error.message : "向量索引失败",
+    };
+  }
 }
 
 /** Admin：停用（软删除，保留历史 DM） */

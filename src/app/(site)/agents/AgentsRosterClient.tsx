@@ -35,11 +35,19 @@ export function AgentsRosterClient({
       form.set("displayName", displayName);
       form.set("qq", qq);
       if (file) form.set("illustration", file);
-      const data = await apiFetch<{ id: number; qq: string }>("/api/agents", {
+      const data = await apiFetch<{
+        id: number;
+        qq: string;
+        indexWarning?: string;
+      }>("/api/agents", {
         method: "POST",
         body: form,
       });
-      success(`已创建 Agent（QQ ${data.qq}）`);
+      success(
+        data.indexWarning
+          ? `已创建 Agent（QQ ${data.qq}），向量索引没做完：${data.indexWarning}`
+          : `已创建 Agent（QQ ${data.qq}），并按已导入群聊完成训练和索引`,
+      );
       setDisplayName("");
       setQq("");
       setFile(null);
@@ -74,7 +82,7 @@ export function AgentsRosterClient({
       {canManage ? (
         <>
           <p className="text-[var(--fog)]">
-            设定显示名与插画，绑定 QQ。群聊靠归档页导入的 JSON 收录。
+            设定显示名与插画，绑定 QQ。添加后会立刻用已经导入的群聊炼人设并建立向量索引，按钮会停在「处理中」直到做完。
           </p>
           <form onSubmit={createAgent} className="grid gap-3 md:grid-cols-2">
             <input

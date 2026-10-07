@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ToastProvider";
 import { UserChip } from "@/components/UserChip";
@@ -304,6 +305,15 @@ export function AdminClient({
         <p className="mt-3 text-sm text-[var(--ink)]">
           群聊仍在归档页手动导入 JSON，导入后会留在归档里。每天北京时间 04:00，如果有还没跟进的新批次，就按现有的清洗结果重炼相关分身并重建向量。没有新文件就不动，也不用再点那两个按钮。
         </p>
+      </section>
+      <section className="panel rounded-2xl p-5">
+        <h2 className="stage-sec">研发赞助</h2>
+        <p className="mt-3 text-sm text-[var(--ink)]">
+          群友在赞助页用微信扫你的收款码。收款码和短说明都在那个页面上传，钱直接进你的微信。
+        </p>
+        <Link href="/sponsor" className="btn mt-4 inline-flex">
+          打开赞助页
+        </Link>
       </section>
       <FeedbackInbox items={feedback} />
     </div>

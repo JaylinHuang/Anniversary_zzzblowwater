@@ -17,6 +17,7 @@ import {
   normalizeFeedbackBatch,
   parseFeedbackDecision,
 } from "../src/lib/feedback";
+import { normalizeSponsorNote, sponsorImageKind } from "../src/lib/sponsor-shared";
 import { openRecall, sameNeedles, sealRecall } from "../src/lib/recall-cache";
 import {
   applyPersonaPatch,
@@ -871,6 +872,17 @@ async function main() {
   assert.strictEqual(parseFeedbackDecision("accepted"), "accepted");
   assert.throws(() => parseFeedbackDecision("maybe"));
   ok("意见可以批量提交，空行丢掉");
+
+  assert.strictEqual(normalizeSponsorNote("  用于服务器  "), "用于服务器");
+  assert.strictEqual(normalizeSponsorNote(""), "");
+  assert.throws(() => normalizeSponsorNote("啊".repeat(81)));
+  assert.strictEqual(
+    sponsorImageKind(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0])),
+    "png",
+  );
+  assert.strictEqual(sponsorImageKind(Uint8Array.from([0xff, 0xd8, 0xff, 0])), "jpeg");
+  assert.strictEqual(sponsorImageKind(Uint8Array.from([0x3c, 0x68, 0x74, 0x6d, 0x6c])), null);
+  ok("赞助说明会收紧，收款码只认图片文件头");
 
   console.log("全部逻辑用例通过");
 }

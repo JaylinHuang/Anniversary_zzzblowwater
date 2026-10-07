@@ -109,6 +109,15 @@ export function AccountMenu({
             <span className="mono text-[0.62rem] opacity-70">03</span>
             提意见
           </Link>
+          <Link
+            href="/sponsor"
+            role="menuitem"
+            className={`menu-item ${pathname.startsWith("/sponsor") ? "is-active" : ""}`}
+            onClick={() => setOpen(false)}
+          >
+            <span className="mono text-[0.62rem] opacity-70">04</span>
+            赞助研发
+          </Link>
           <div className="mx-3 my-1 h-px bg-[var(--line)]" />
           <button
             type="button"

@@ -182,6 +182,13 @@ export function SiteNav({
           <span className="mono text-[0.6rem] opacity-70">FB</span>
           提意见
         </Link>
+        <Link
+          href="/sponsor"
+          className={`nav-chip ${isNavActive(pathname, "/sponsor") ? "is-active" : ""}`}
+        >
+          <span className="mono text-[0.6rem] opacity-70">¥</span>
+          赞助
+        </Link>
       </div>
     </header>
   );

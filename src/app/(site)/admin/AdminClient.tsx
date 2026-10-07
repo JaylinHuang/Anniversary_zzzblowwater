@@ -6,7 +6,7 @@ import { useToast } from "@/components/ToastProvider";
 import { UserChip } from "@/components/UserChip";
 import { apiFetch } from "@/lib/api-client";
 import type { ModuleKey } from "@/lib/constants";
-import type { FeedbackRow } from "@/lib/feedback";
+import type { FeedbackRow } from "@/lib/feedback-shared";
 import { FeedbackInbox } from "./FeedbackInbox";
 
 export function AdminClient({

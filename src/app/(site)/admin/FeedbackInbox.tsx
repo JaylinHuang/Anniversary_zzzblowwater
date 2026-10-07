@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ToastProvider";
 import { UserChip } from "@/components/UserChip";
 import { apiFetch } from "@/lib/api-client";
-import type { FeedbackRow, FeedbackStatus } from "@/lib/feedback";
+import type { FeedbackRow, FeedbackStatus } from "@/lib/feedback-shared";
 
 const FILTERS: { id: "pending" | "accepted" | "rejected" | "all"; label: string }[] = [
   { id: "pending", label: "待处理" },

@@ -10,7 +10,7 @@ import {
   FEEDBACK_NOTE_MAX,
   type FeedbackRow,
   type FeedbackStatus,
-} from "@/lib/feedback";
+} from "@/lib/feedback-shared";
 
 const STATUS_LABEL: Record<FeedbackStatus, string> = {
   pending: "待处理",

@@ -97,14 +97,6 @@ export function startDailyFlushLoop() {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
   g.__dailyFlushLoop = true;
   const tick = () => {
-    void import("@/lib/import-refresh")
-      .then((mod) => mod.catchUpExistingAgents())
-      .catch((error) => {
-        console.error(
-          "[agent-train]",
-          error instanceof Error ? error.message : "failed",
-        );
-      });
     void runScheduledFlush().catch((error) => {
       console.error(
         "[daily-flush]",

@@ -2,11 +2,6 @@ import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
 import { rebuildEmbeddingsForQq } from "@/lib/rag";
 import { listTrackedAgentQqs, rebuildAgentPersona } from "@/lib/roster";
 
-/** 已有分身补上「按整段群聊重炼」的标记。有值就不再在启动时重跑 */
-const CATCHUP_KEY = "group_persona_at";
-
-let catchingUp = false;
-
 /**
  * 新导入的批次 agent_refreshed_at 为空。
  * 已有的整份归档在加列时标过时间，凌晨不会重跑。
@@ -84,43 +79,4 @@ export async function refreshImportedAgents(): Promise<{
     }
   });
   return { batches: ids.length, agents: qqs.length, embedded };
-}
-
-/**
- * 服务起来后立刻给已启用的分身重炼人设并重建向量，不用等到凌晨。
- * 只跑一次：厂夏这类早就建好的卡，也能用上当前归档。
- * 中途失败不写标记，下一分钟再试。
- */
-export async function catchUpExistingAgents(): Promise<boolean> {
-  if (catchingUp) return false;
-  catchingUp = true;
-  try {
-    const db = await getDb();
-    const done = rowFrom<{ value: string }>(
-      db,
-      `SELECT value FROM site_settings WHERE key = ?`,
-      [CATCHUP_KEY],
-    );
-    if (done?.value) return false;
-    const agents = rowsFrom<{ id: number; qq: string; display_name: string }>(
-      db,
-      `SELECT id, qq, display_name FROM agent_personas WHERE enabled = 1 ORDER BY id ASC`,
-    );
-    for (const agent of agents) {
-      console.log(`[agent-train] ${agent.display_name} 按已导入群聊重炼`);
-      await rebuildAgentPersona(agent.id);
-      await rebuildEmbeddingsForQq(agent.qq);
-    }
-    const stamped = new Date().toISOString();
-    await withDb((database) => {
-      database.run(
-        `INSERT INTO site_settings (key, value) VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-        [CATCHUP_KEY, stamped],
-      );
-    });
-    return true;
-  } finally {
-    catchingUp = false;
-  }
 }

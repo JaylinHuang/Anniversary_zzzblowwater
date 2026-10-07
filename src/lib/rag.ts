@@ -27,46 +27,27 @@ export type RagHit = {
 };
 
 /** 本地索引覆盖全年，云端仍按条数上限控制费用 */
-function takeIndexRows<T>(rows: T[], limit: number, local: boolean): T[] {
-  if (rows.length <= limit) return rows;
-  if (!local) return rows.slice(-limit);
-  const recentCount = Math.min(400, Math.floor(limit / 4));
-  const recent = rows.slice(-recentCount);
-  const older = rows.slice(0, rows.length - recentCount);
-  const need = limit - recent.length;
-  const picked: T[] = [];
-  const step = older.length / need;
-  for (let i = 0; i < need; i++) {
-    picked.push(older[Math.min(older.length - 1, Math.floor(i * step))]);
-  }
-  return [...picked, ...recent];
-}
-
 let botEmbeddingsPurged = false;
 
-/** 删掉已经写进向量库、但其实是跟机器人对话的旧索引 */
+/** 删掉机器人自己的向量。不做全文 LIKE，那会把整库扫进内存 */
 async function purgeBotEmbeddings(): Promise<void> {
   if (botEmbeddingsPurged) return;
   botEmbeddingsPurged = true;
   const nameSlots = BOT_GROUP_NAMES.map(() => "?").join(", ");
-  const likeSlots = BOT_GROUP_NAMES.map(() => "content LIKE ?").join(" OR ");
-  const likeParams = BOT_GROUP_NAMES.map((name) => `%${name}%`);
-  await withDb((db) => {
-    db.run(
-      `DELETE FROM chat_embeddings WHERE message_id IN (
-         SELECT id FROM chat_messages WHERE ${likeSlots}
-       )`,
-      likeParams,
-    );
-    db.run(
-      `DELETE FROM chat_embeddings WHERE qq_number IN (
-         SELECT DISTINCT qq_number FROM chat_messages
-         WHERE sender IN (${nameSlots})
-           AND qq_number IS NOT NULL AND qq_number != ''
-       )`,
-      [...BOT_GROUP_NAMES],
-    );
-  });
+  try {
+    await withDb((db) => {
+      db.run(
+        `DELETE FROM chat_embeddings WHERE qq_number IN (
+           SELECT DISTINCT qq_number FROM chat_messages
+           WHERE sender IN (${nameSlots})
+             AND qq_number IS NOT NULL AND qq_number != ''
+         )`,
+        [...BOT_GROUP_NAMES],
+      );
+    });
+  } catch {
+    /* 清不掉也不要挡住建索引 */
+  }
 }
 
 /** 为某 QQ 的发言建立/刷新向量索引 */
@@ -88,24 +69,24 @@ export async function indexEmbeddingsForQq(qq: string): Promise<{
   if (botSpeaker || isBotGroupName(qq)) {
     return { indexed: 0, model: backend.model, local: backend.local };
   }
-  const limit = backend.local ? Math.max(ragIndexPerQq(), 2000) : ragIndexPerQq();
-  const rows = takeIndexRows(
-    rowsFrom<{
-      id: number;
-      content: string;
-      sent_at: string | null;
-    }>(
-      db,
-      `SELECT m.id, m.content, m.sent_at
-       FROM chat_messages m
-       JOIN import_batches b ON b.id = m.batch_id
-       WHERE b.status = 'active' AND m.qq_number = ?
-       ORDER BY m.sent_at ASC, m.id ASC`,
-      [qq],
-    ).filter((r) => isAgentCorpusText(r.content)),
-    limit,
-    backend.local,
-  );
+  // 只取最近一小段。按时间倒序读进来，筛掉机器人腔之后再截断，避免一次载入全部发言
+  const cap = Math.min(ragIndexPerQq(), 400);
+  const rows = rowsFrom<{
+    id: number;
+    content: string;
+    sent_at: string | null;
+  }>(
+    db,
+    `SELECT m.id, m.content, m.sent_at
+     FROM chat_messages m
+     JOIN import_batches b ON b.id = m.batch_id
+     WHERE b.status = 'active' AND m.qq_number = ?
+     ORDER BY m.id DESC
+     LIMIT ?`,
+    [qq, cap * 2],
+  )
+    .filter((r) => isAgentCorpusText(r.content))
+    .slice(0, cap);
   const uniqueRows = dedupeIndexRows(rows);
 
   if (!uniqueRows.length) {

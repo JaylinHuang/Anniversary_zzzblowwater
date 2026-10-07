@@ -1,7 +1,7 @@
 import { contentMentionsBot, isBotGroupName } from "@/lib/bot-chat";
 import { mentionSamplesForQq } from "@/lib/group-recall";
 import { agentPersonaSampleSize, GROUP_NAME } from "@/lib/constants";
-import { isAgentCorpusText, isCountableTextMessage } from "@/lib/chat-parser";
+import { isAgentCorpusText } from "@/lib/chat-parser";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
 import {
   chatCompletion,
@@ -15,19 +15,17 @@ export type SpeakerStat = {
   textCount: number;
 };
 
-/** 统计某 QQ 在活跃归档中的可计票文本条数 */
+/** 统计某 QQ 在活跃归档中的条数。只计数，不把正文读进内存 */
 export async function countTextsForQq(qq: string): Promise<number> {
   const db = await getDb();
-  const rows = rowsFrom<{ content: string }>(
+  const row = rowFrom<{ c: number }>(
     db,
-    `SELECT m.content FROM chat_messages m
+    `SELECT COUNT(*) AS c FROM chat_messages m
      JOIN import_batches b ON b.id = m.batch_id
      WHERE b.status = 'active' AND m.qq_number = ?`,
     [qq],
   );
-  return rows.filter(
-    (r) => isCountableTextMessage(r.content) && !contentMentionsBot(r.content),
-  ).length;
+  return Number(row?.c ?? 0);
 }
 
 /** 已绑定 Agent 的 QQ 集合（实时同步时用于刷新计数） */
@@ -110,16 +108,31 @@ async function buildBasePersona(
 ) {
   const db = await getDb();
   const sampleSize = agentPersonaSampleSize();
-  const corpus = rowsFrom<{ content: string }>(
+  // 只取开头一小段和最近一小段，避免把这个人的全部发言读进内存
+  const recent = rowsFrom<{ content: string }>(
     db,
-    `SELECT content FROM chat_messages m
+    `SELECT m.content AS content FROM chat_messages m
      JOIN import_batches b ON b.id = m.batch_id
      WHERE b.status = 'active' AND m.qq_number = ?
-     ORDER BY m.sent_at ASC, m.id ASC`,
-    [qq],
+     ORDER BY m.id DESC
+     LIMIT ?`,
+    [qq, Math.max(sampleSize, 80)],
+  )
+    .map((r) => r.content)
+    .filter(isAgentCorpusText)
+    .reverse();
+  const older = rowsFrom<{ content: string }>(
+    db,
+    `SELECT m.content AS content FROM chat_messages m
+     JOIN import_batches b ON b.id = m.batch_id
+     WHERE b.status = 'active' AND m.qq_number = ?
+     ORDER BY m.id ASC
+     LIMIT ?`,
+    [qq, 40],
   )
     .map((r) => r.content)
     .filter(isAgentCorpusText);
+  const corpus = [...older, ...recent.filter((line) => !older.includes(line))];
   const samples = pickPersonaSamples(corpus, sampleSize);
 
   const quotes = samples

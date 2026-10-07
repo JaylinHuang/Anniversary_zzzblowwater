@@ -106,5 +106,7 @@ export function startDailyFlushLoop() {
   };
   const timer = setInterval(tick, 60_000);
   timer.unref?.();
-  tick();
+  // 先让健康检查通过。一启动就跟进归档会读库、调模型，2G 机器容易被打死
+  const first = setTimeout(tick, 3 * 60_000);
+  first.unref?.();
 }

@@ -1,3 +1,5 @@
+import { beijingClock } from "@/lib/date-key";
+
 /** 建群/正日周年锚点：每年 7 月 10 日 */
 export const ANNIVERSARY_MONTH = 7;
 export const ANNIVERSARY_DAY = 10;
@@ -139,30 +141,42 @@ export const MODULE_META: Record<
   },
 };
 
-/** 计算自建群日以来的同行天数（锚点：给定年份的 7/10，默认最近已过的周年或建群年） */
+function atBeijing(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): Date {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return new Date(
+    `${year}-${p(month)}-${p(day)}T${p(hour)}:${p(minute)}:${p(second)}+08:00`,
+  );
+}
+
+/** 计算自建群日以来的同行天数。从北京时间 2025-07-10 零点起算 */
 export function daysTogether(now = new Date()): number {
-  // 以 2025-07-10 为建群日（一周年正日为 2026-07-10）
-  const founded = new Date(2025, ANNIVERSARY_MONTH - 1, ANNIVERSARY_DAY);
+  const founded = atBeijing(2025, ANNIVERSARY_MONTH, ANNIVERSARY_DAY, 0, 0, 0);
   const ms = now.getTime() - founded.getTime();
   return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)));
 }
 
-/** 最近一次庆典日：今年 8/4；过后则下一年 7/10 */
+/** 最近一次庆典日：今年 8/4 北京时间结束；过后则下一年 7/10 */
 export function nextCelebrationDate(now = new Date()): Date {
-  const celebration = new Date(
+  const celebration = atBeijing(
     CELEBRATION_YEAR,
-    CELEBRATION_MONTH - 1,
+    CELEBRATION_MONTH,
     CELEBRATION_DAY,
     23,
     59,
     59,
   );
   if (now.getTime() <= celebration.getTime()) return celebration;
-  // 庆典过后，指向下一正日周年
-  let year = now.getFullYear();
-  let next = new Date(year, ANNIVERSARY_MONTH - 1, ANNIVERSARY_DAY, 23, 59, 59);
+  const year = beijingClock(now).year;
+  let next = atBeijing(year, ANNIVERSARY_MONTH, ANNIVERSARY_DAY, 23, 59, 59);
   if (now.getTime() > next.getTime()) {
-    next = new Date(year + 1, ANNIVERSARY_MONTH - 1, ANNIVERSARY_DAY, 23, 59, 59);
+    next = atBeijing(year + 1, ANNIVERSARY_MONTH, ANNIVERSARY_DAY, 23, 59, 59);
   }
   return next;
 }

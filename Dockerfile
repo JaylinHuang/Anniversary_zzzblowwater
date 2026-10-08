@@ -13,6 +13,8 @@ FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+# 容器系统时区与网站日历日一致，都用北京时间
+ENV TZ=Asia/Shanghai
 # Railway / 容器内需监听所有网卡，否则公网探测失败
 ENV HOSTNAME=0.0.0.0
 # Zeabur 上传文件时要在容器里用 wget 把压缩包拉下来再解压

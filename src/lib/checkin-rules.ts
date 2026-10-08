@@ -1,5 +1,3 @@
-import { todayKey } from "./date-key";
-
 const STAMPS = [
   "绳网签到",
   "空洞打卡",
@@ -20,9 +18,10 @@ export function stampForDate(dateKey: string): string {
 
 function previousDay(dateKey: string): string {
   const [y, m, d] = dateKey.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() - 1);
-  return todayKey(dt);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
 }
 
 /**

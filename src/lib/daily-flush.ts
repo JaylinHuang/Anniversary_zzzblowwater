@@ -1,4 +1,7 @@
+import { shanghaiClock, shanghaiDayKey } from "@/lib/date-key";
 import { getDb, rowFrom, withDb } from "@/lib/db";
+
+export { shanghaiClock, shanghaiDayKey };
 
 /** 每天跟进新导入的钟点，按北京时间 */
 export const DAILY_FLUSH_HOUR = 4;
@@ -6,34 +9,6 @@ export const DAILY_FLUSH_HOUR = 4;
 const REFRESH_KEY = "import_refresh_at";
 
 let refreshing = false;
-
-/** 北京时间的年月日时，hour 为 0–23 */
-export function shanghaiClock(now: Date): {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-} {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(now);
-  const num = (type: string) =>
-    Number(parts.find((part) => part.type === type)?.value ?? "0");
-  let hour = num("hour");
-  if (hour === 24) hour = 0;
-  return { year: num("year"), month: num("month"), day: num("day"), hour };
-}
-
-export function shanghaiDayKey(now: Date): string {
-  const clock = shanghaiClock(now);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${clock.year}-${pad(clock.month)}-${pad(clock.day)}`;
-}
 
 /**
  * 是否到了该跟进的时候。

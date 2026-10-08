@@ -4,6 +4,7 @@ import { PageStage } from "@/components/fx/PageStage";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 import type { Role } from "@/lib/constants";
 import { getCheckinStatus } from "@/lib/checkin";
+import { formatBeijingDate } from "@/lib/date-key";
 import { getDb, rowFrom, rowsFrom } from "@/lib/db";
 import { ProfilePanel } from "./ProfilePanel";
 
@@ -170,7 +171,7 @@ export default async function MePage() {
               <div>
                 <dt className="inline text-[var(--fog)]">建档 </dt>
                 <dd className="inline text-[var(--ink)]">
-                  {(row.created_at || "").slice(0, 10) || "—"}
+                  {row.created_at ? formatBeijingDate(row.created_at) : "—"}
                 </dd>
               </div>
               <div>

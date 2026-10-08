@@ -1,3 +1,4 @@
+import { formatBeijingDateTime } from "@/lib/date-key";
 import { getDb, rowsFrom, withDb } from "@/lib/db";
 import {
   FEEDBACK_BATCH_MAX,
@@ -72,8 +73,8 @@ function mapRow(row: {
     body: String(row.body || ""),
     note: String(row.note || ""),
     status: asStatus(String(row.status || "")),
-    createdAt: String(row.created_at || ""),
-    resolvedAt: row.resolved_at ? String(row.resolved_at) : null,
+    createdAt: formatBeijingDateTime(String(row.created_at || "")),
+    resolvedAt: row.resolved_at ? formatBeijingDateTime(String(row.resolved_at)) : null,
   };
 }
 

@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { useToast } from "@/components/ToastProvider";
 import { apiFetch } from "@/lib/api-client";
+import { formatBeijingClock, parseUtcLike } from "@/lib/date-key";
 
 type Msg = {
   id?: number;
@@ -27,24 +28,14 @@ type GroupLine = {
 
 function clock(raw?: string) {
   if (!raw) return "";
-  const matched = raw.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
-  if (!matched) return "";
-  const today = new Date();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  const isToday =
-    matched[1] === String(today.getFullYear()) &&
-    matched[2] === month &&
-    matched[3] === day;
-  if (isToday) return `${matched[4]}:${matched[5]}`;
-  return `${Number(matched[2])}月${Number(matched[3])}日 ${matched[4]}:${matched[5]}`;
+  return formatBeijingClock(raw);
 }
 
 function gapMinutes(prev?: string, next?: string) {
   if (!prev || !next) return true;
-  const a = Date.parse(prev.includes("T") ? prev : prev.replace(" ", "T"));
-  const b = Date.parse(next.includes("T") ? next : next.replace(" ", "T"));
-  if (Number.isNaN(a) || Number.isNaN(b)) return true;
+  const a = parseUtcLike(prev)?.getTime();
+  const b = parseUtcLike(next)?.getTime();
+  if (a == null || b == null) return true;
   return Math.abs(b - a) >= 5 * 60 * 1000;
 }
 

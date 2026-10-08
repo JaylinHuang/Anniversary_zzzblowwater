@@ -1,5 +1,7 @@
 /** Meme 馆评论：纯函数与类型（前后端共用，不依赖数据库） */
 
+import { formatBeijingDateTime } from "@/lib/date-key";
+
 /** 单条评论的最大长度（按字符计） */
 export const MAX_COMMENT_LENGTH = 300;
 
@@ -48,12 +50,11 @@ export function groupCommentsByMedia(
   return map;
 }
 
-/** 评论时间展示：数据库存的是 UTC "YYYY-MM-DD HH:MM:SS"，转成本地时间的 "MM-DD HH:mm" */
+/** 评论时间展示：数据库存的是 UTC，显示成北京时间的 "MM-DD HH:mm" */
 export function formatCommentTime(createdAt: string): string {
-  const d = new Date(createdAt.replace(" ", "T") + "Z");
-  if (Number.isNaN(d.getTime())) return createdAt;
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const full = formatBeijingDateTime(createdAt);
+  if (full.length < 16) return createdAt;
+  return `${full.slice(5, 10)} ${full.slice(11, 16)}`;
 }
 
 /** 无评论时的下一步提示 */

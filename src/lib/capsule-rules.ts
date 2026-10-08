@@ -36,7 +36,7 @@ export function isCapsuleUnlocked(
 
 /**
  * 祝福墙胶囊列表查询。
- * 「今天」不再用 SQLite 的 date('now')（UTC），而是由调用方传入本地日期键（todayKey），
+ * 「今天」不再用 SQLite 的 date('now')（UTC），而是由调用方传入北京时间日期键（todayKey），
  * 与首页打卡使用同一个本地日期。参数请用 capsuleViewerParams 生成，顺序为：
  * 今天、查看者 id、今天、今天、查看者 id（未登录查看者传 -1）。
  * 正文是否下发完全在 SQL 里决定：

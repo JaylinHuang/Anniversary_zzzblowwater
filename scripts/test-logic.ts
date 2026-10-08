@@ -41,6 +41,11 @@ import {
   flushIsDue,
   shanghaiDayKey,
 } from "../src/lib/daily-flush";
+import {
+  formatBeijingClock,
+  formatBeijingDateTime,
+  todayKey,
+} from "../src/lib/date-key";
 import { trackedQqsInImport } from "../src/lib/import-refresh";
 import {
   pickBaselineRoster,
@@ -824,6 +829,13 @@ async function main() {
   assert.strictEqual(flushIsDue(atFour, atFour.toISOString()), false);
   assert.strictEqual(flushIsDue(nextFour, atFour.toISOString()), true);
   assert.strictEqual(shanghaiDayKey(atFour), "2026-10-06");
+  assert.strictEqual(todayKey(new Date("2026-10-08T15:59:00Z")), "2026-10-08");
+  assert.strictEqual(todayKey(new Date("2026-10-08T16:00:00Z")), "2026-10-09");
+  assert.strictEqual(formatBeijingDateTime("2026-10-08 07:44:00"), "2026-10-08 15:44");
+  assert.strictEqual(
+    formatBeijingClock("2026-10-08 07:44:00", new Date("2026-10-08T07:44:00Z")),
+    "15:44",
+  );
   assert.deepStrictEqual(
     trackedQqsInImport(["10001", "10002", "10001", ""], ["10002"]),
     ["10002"],

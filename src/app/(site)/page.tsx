@@ -38,6 +38,7 @@ export default async function HomePage() {
   const celebrationLabel = `${CELEBRATION_YEAR}.${pad2(CELEBRATION_MONTH)}.${pad2(CELEBRATION_DAY)}`;
   /* 小报日期行（服务端生成，避免水合不一致） */
   const dateLabel = new Date().toLocaleDateString("zh-CN", {
+    timeZone: "Asia/Shanghai",
     year: "numeric",
     month: "long",
     day: "numeric",

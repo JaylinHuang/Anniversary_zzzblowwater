@@ -1,5 +1,7 @@
 /** 祝福墙纯函数（无 IO，便于复用与测试） */
 
+import { todayKey } from "@/lib/date-key";
+
 /** 把 Date 格式化为 SQLite datetime('now') 同款的 UTC 字符串：YYYY-MM-DD HH:MM:SS */
 export function toSqliteUtc(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -10,33 +12,18 @@ export function toSqliteUtc(d: Date): string {
 }
 
 /**
- * 「今天」的半开区间 [start, end)，以服务器本地时区的 0 点为界，
+ * 「今天」的半开区间 [start, end)，以北京时间 0 点为界，
  * 返回值已换算成库内 created_at（UTC）可直接比较的字符串。
- * 用区间比较而不是 date(created_at)，避免 UTC 与本地日期错位导致跨日误算。
+ * 用区间比较而不是 date(created_at)，避免 UTC 与北京日期错位导致跨日误算。
  */
 export function localDayRangeUtc(now = new Date()): {
   start: string;
   end: string;
 } {
-  const startLocal = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    0,
-    0,
-    0,
-    0,
-  );
-  const endLocal = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1,
-    0,
-    0,
-    0,
-    0,
-  );
-  return { start: toSqliteUtc(startLocal), end: toSqliteUtc(endLocal) };
+  const key = todayKey(now);
+  const start = new Date(`${key}T00:00:00+08:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start: toSqliteUtc(start), end: toSqliteUtc(end) };
 }
 
 /** 今日还能贴几条：永不小于 0 */

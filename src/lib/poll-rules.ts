@@ -1,9 +1,8 @@
-/** 按本地日历日比较：ends_at 当天仍可投（含截止日） */
+import { todayKey } from "@/lib/date-key";
+
+/** 按北京时间的日历日比较：ends_at 当天仍可投（含截止日） */
 export function dayKey(d = new Date()): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return todayKey(d);
 }
 
 export function isPollOpen(endsAt: string | null | undefined, now = new Date()) {

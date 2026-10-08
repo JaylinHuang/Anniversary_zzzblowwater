@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { formatBeijingDateTime } from "@/lib/date-key";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
 import {
   normalizeSponsorGiftNote,
@@ -125,7 +126,7 @@ function mapEntry(row: {
     avatarUrl: row.avatar_url,
     amountFen: Number(row.amount_fen) || 0,
     note: String(row.note || ""),
-    createdAt: String(row.created_at || ""),
+    createdAt: formatBeijingDateTime(String(row.created_at || "")),
   };
 }
 

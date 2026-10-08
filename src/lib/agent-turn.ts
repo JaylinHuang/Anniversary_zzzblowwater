@@ -765,9 +765,8 @@ export async function runMemberTurnDetailed(params: {
     );
     written++;
   }
-  // 检索用过的临时结果先让出，再整库落一次盘
+  // 检索用过的临时结果先让出。整库只在保存回复时导出一次，这里再导出会叠成两份拷贝
   await new Promise((resolve) => setTimeout(resolve, 30));
-  await flush();
 
   return { reply: reply.trim(), turnId, steps, calls, hitCap, written, recallToken };
 }

@@ -16,8 +16,9 @@ function ensureDataDir() {
 
 function persist(db: Database) {
   ensureDataDir();
+  // export 已经是一份整库拷贝，再包一层 Buffer 会在同一时刻多占一份
   const data = db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
+  fs.writeFileSync(DB_PATH, data);
 }
 
 /**

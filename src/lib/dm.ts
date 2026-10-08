@@ -153,6 +153,7 @@ export async function sendDm(params: {
     });
     const reply = turn.reply;
 
+    // 用户那句还在内存里，和这句回复一起落盘，一轮只导出一次整库
     const turnCount = await withDb((db) => {
       db.run(
         `INSERT INTO agent_dm_messages (session_id, user_id, agent_id, role, content, day_key)

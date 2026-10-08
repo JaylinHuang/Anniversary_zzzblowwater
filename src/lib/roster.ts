@@ -1,5 +1,5 @@
 import { contentMentionsBot, isBotGroupName } from "@/lib/bot-chat";
-import { mentionSamplesForQq, recentMessagesByQq } from "@/lib/group-recall";
+import { mentionSamplesForQq, recentMessagesByQq, recentSenderNames } from "@/lib/group-recall";
 import { agentPersonaSampleSize, GROUP_NAME } from "@/lib/constants";
 import { isAgentCorpusText } from "@/lib/chat-parser";
 import { loadSpreadMessages } from "@/lib/corpus-sample";
@@ -61,33 +61,19 @@ export async function listAgentGroupChat(qq: string, limit = 40) {
     .slice(0, limit);
 }
 
-/** 网站用户在群归档里用过的发送者名。QQ 对得上就是同一个人，不另算一个群友。 */
+const senderNameCache = new Map<string, { at: number; names: string[] }>();
+
+/** 网站用户在群归档里用过的发送者名。只看最近几段，不把整张表扫一遍 */
 export async function listUserSenderNames(
   qq: string | null,
   displayName: string,
 ): Promise<string[]> {
-  const db = await getDb();
-  const name = displayName.trim();
-  const rows = qq
-    ? rowsFrom<{ sender: string }>(
-        db,
-        `SELECT DISTINCT m.sender AS sender
-         FROM chat_messages m
-         JOIN import_batches b ON b.id = m.batch_id
-         WHERE b.status = 'active' AND (m.qq_number = ? OR m.sender = ? COLLATE NOCASE)
-         LIMIT 12`,
-        [qq, name],
-      )
-    : rowsFrom<{ sender: string }>(
-        db,
-        `SELECT DISTINCT m.sender AS sender
-         FROM chat_messages m
-         JOIN import_batches b ON b.id = m.batch_id
-         WHERE b.status = 'active' AND m.sender = ? COLLATE NOCASE
-         LIMIT 12`,
-        [name],
-      );
-  return rows.map((row) => row.sender).filter(Boolean);
+  const key = `${qq || ""}\n${displayName.trim()}`;
+  const hit = senderNameCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.names;
+  const names = await recentSenderNames(qq, displayName);
+  senderNameCache.set(key, { at: Date.now(), names });
+  return names;
 }
 
 async function buildBasePersona(

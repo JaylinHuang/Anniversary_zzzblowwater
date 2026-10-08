@@ -1,5 +1,5 @@
 import { isAgentCorpusText } from "@/lib/chat-parser";
-import { getDb, rowsFrom } from "@/lib/db";
+import { recentMessagesByQq } from "@/lib/group-recall";
 
 /** 从本人发言里量出来的说话节奏，用来约束分身别写成客服长文 */
 export type SpeakStyle = {
@@ -55,20 +55,11 @@ export function speakStyleCaption(style: SpeakStyle): string {
   return `平均 ${style.avgLen} 字 · 短句 ${style.shortPct}% · 表情 ${style.emojiPct}%`;
 }
 
-/** 最近一段本人发言的节奏。进程内缓存十分钟，避免每轮都扫库 */
+/** 最近一段本人发言的节奏。只取最近几段，不把这个人的全部发言排序 */
 export async function loadSpeakStyle(qq: string): Promise<SpeakStyle | null> {
   const hit = cache.get(qq);
   if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.style;
-  const db = await getDb();
-  const rows = rowsFrom<{ content: string }>(
-    db,
-    `SELECT m.content FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' AND m.qq_number = ?
-     ORDER BY m.id DESC
-     LIMIT 600`,
-    [qq],
-  );
+  const rows = await recentMessagesByQq(qq, 80);
   const style = summarizeSpeakStyle(
     rows.map((row) => row.content).filter(isAgentCorpusText),
   );

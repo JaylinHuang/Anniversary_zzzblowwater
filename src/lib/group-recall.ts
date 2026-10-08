@@ -182,24 +182,66 @@ function keepLines(rows: LineRow[], selfQq: string, limit: number): string[] {
   return out;
 }
 
-/** 活跃归档里的群名片。十分钟内复用，避免每句话都扫一遍全表 */
+/** 闲聊里的套话。这些词不值得去四十万条归档里翻 */
+const CHAT_FILLER = new Set([
+  "你好",
+  "您好",
+  "在吗",
+  "哈哈",
+  "哈哈哈",
+  "哈哈哈哈",
+  "嗨",
+  "早安",
+  "晚安",
+  "谢谢",
+  "好的",
+  "嗯嗯",
+  "嗯",
+]);
+
+/** 私聊最多翻最近几段主键。整段归档扫一遍就会把进程打死 */
+const CHAT_WINDOW_KEEP = 4;
+
+function recentIdWindows(lo: number, hi: number): Array<[number, number]> {
+  return idWindows(lo, hi).slice(-CHAT_WINDOW_KEEP);
+}
+
+/** 这句话没有具体的人或事，就不要去翻群归档 */
+function worthScanning(talk: string, selfName: string): boolean {
+  const useful = [...topicNeedles(talk, [selfName]), ...recallNameTokens(talk)].filter(
+    (item) => !CHAT_FILLER.has(item),
+  );
+  return useful.length > 0;
+}
+
+let spanCache: { at: number; lo: number; hi: number } | null = null;
+
+/** 主键头尾。按编号取第一条和最后一条，不把整表扫一遍求最小最大 */
+async function activeSpan(): Promise<{ lo: number; hi: number } | null> {
+  if (spanCache && Date.now() - spanCache.at < 10 * 60 * 1000) return spanCache;
+  const db = await getDb();
+  const lo = rowFrom<{ id: number }>(
+    db,
+    `SELECT id FROM chat_messages ORDER BY id ASC LIMIT 1`,
+  );
+  const hi = rowFrom<{ id: number }>(
+    db,
+    `SELECT id FROM chat_messages ORDER BY id DESC LIMIT 1`,
+  );
+  if (!lo || !hi) return null;
+  spanCache = { at: Date.now(), lo: Number(lo.id), hi: Number(hi.id) };
+  return spanCache;
+}
+
+/** 活跃归档里最近出现过的群名片。十分钟内复用，只看最近几段 */
 export async function listGroupSpeakers(): Promise<GroupSpeaker[]> {
   if (speakerCache && Date.now() - speakerCache.at < 10 * 60 * 1000) {
     return speakerCache.rows;
   }
   const db = await getDb();
-  const span = rowFrom<{ lo: number | null; hi: number | null }>(
-    db,
-    `SELECT MIN(m.id) AS lo, MAX(m.id) AS hi
-     FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active'`,
-  );
+  const span = await activeSpan();
   const merged = new Map<string, { sender: string; qq_number: string }>();
-  const windows =
-    span && span.lo != null && span.hi != null
-      ? idWindows(Number(span.lo), Number(span.hi))
-      : [];
+  const windows = span ? recentIdWindows(span.lo, span.hi) : [];
   for (const [lo, hi] of windows) {
     const rows = rowsFrom<{ sender: string; qq_number: string }>(
       db,
@@ -234,17 +276,11 @@ async function recentActiveRows<T extends Record<string, import("sql.js").SqlVal
   limit: number,
 ): Promise<T[]> {
   const want = Math.max(1, Math.min(limit, 200));
+  const span = await activeSpan();
+  if (!span) return [];
   const db = await getDb();
-  const span = rowFrom<{ lo: number | null; hi: number | null }>(
-    db,
-    `SELECT MIN(m.id) AS lo, MAX(m.id) AS hi
-     FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active'`,
-  );
-  if (!span || span.lo == null || span.hi == null) return [];
   const out: T[] = [];
-  for (const [lo, hi] of [...idWindows(Number(span.lo), Number(span.hi))].reverse()) {
+  for (const [lo, hi] of [...recentIdWindows(span.lo, span.hi)].reverse()) {
     const rows = rowsFrom<T>(
       db,
       `SELECT ${columns}
@@ -298,6 +334,31 @@ export async function recentMessagesByQq(
     [qq],
     limit,
   );
+}
+
+/** 最近几段里这个人用过的群名片。不在整张表上做 DISTINCT */
+export async function recentSenderNames(
+  qq: string | null,
+  displayName: string,
+): Promise<string[]> {
+  const name = displayName.trim();
+  if (!qq && name.length < 2) return name ? [name] : [];
+  const rows = await recentActiveRows<{ sender: string }>(
+    `m.sender AS sender`,
+    qq
+      ? `m.sender != '' AND (m.qq_number = ? OR m.sender = ? COLLATE NOCASE)`
+      : `m.sender = ? COLLATE NOCASE`,
+    qq ? [qq, name] : [name],
+    24,
+  );
+  const names: string[] = [];
+  for (const row of rows) {
+    const sender = String(row.sender || "").trim();
+    if (!sender || names.includes(sender)) continue;
+    names.push(sender);
+    if (names.length >= 8) break;
+  }
+  return names;
 }
 
 /** 把主键切成小段。段数不多时盖住全部 id，避免一条 SQL 把整表排进内存 */
@@ -381,16 +442,9 @@ async function linesAboutTopic(
   names: string[],
   needles: string[],
 ): Promise<DatedLine[]> {
-  const db = await getDb();
-  const span = rowFrom<{ lo: number | null; hi: number | null }>(
-    db,
-    `SELECT MIN(m.id) AS lo, MAX(m.id) AS hi
-     FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active'`,
-  );
-  if (!span || span.lo == null || span.hi == null) return [];
-  const windows = idWindows(Number(span.lo), Number(span.hi));
+  const span = await activeSpan();
+  if (!span) return [];
+  const windows = recentIdWindows(span.lo, span.hi);
   const merged: DatedLine[] = [];
   const push = (line: DatedLine) => {
     if (!merged.some((item) => item.id === line.id)) merged.push(line);
@@ -422,8 +476,12 @@ export async function collectGroupRecall(params: {
   persona?: string;
   limit?: number;
 }): Promise<{ names: string[]; lines: string[]; personaPatch: string | null }> {
-  const speakers = await listGroupSpeakers();
   const current = (params.focus || params.talk).trim();
+  const selfNameEarly = (params.selfName || "").trim();
+  if (!worthScanning(`${current}\n${params.talk}`, selfNameEarly)) {
+    return { names: [], lines: [], personaPatch: null };
+  }
+  const speakers = await listGroupSpeakers();
   const matchedNow = matchSpeakersInTalk(current, speakers);
   const matchedTalk = matchSpeakersInTalk(params.talk, speakers);
   const selfName = (params.selfName || "").trim();

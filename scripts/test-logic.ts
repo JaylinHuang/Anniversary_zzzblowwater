@@ -31,6 +31,12 @@ import {
   resolveSubject,
   topicNeedles,
 } from "../src/lib/fact-timeline";
+import {
+  keepGroundedPhrases,
+  parsePhraseLines,
+  planSearchLocal,
+  yearFromTalk,
+} from "../src/lib/search-phrases";
 import { formatGroupRecallBlock, matchSpeakersInTalk, recallNameTokens } from "../src/lib/group-recall";
 import { rerankHits } from "../src/lib/rag-rerank";
 import { replyTemperature, AGENT_HARD_RULES, formatSpeakerIdentity, sameQq, correctSelfReply, correctOtherReply } from "../src/lib/agent-crew";
@@ -200,6 +206,21 @@ async function main() {
   {
     assert.deepStrictEqual(topicNeedles("你现在在上高中还是初中"), ["高中", "初中"]);
     assert.deepStrictEqual(topicNeedles("你觉得麦当劳怎么样"), ["麦当劳"]);
+    const when = new Date("2026-10-08T04:00:00Z");
+    assert.strictEqual(yearFromTalk("你去年在哪上学", when), "2025");
+    assert.strictEqual(yearFromTalk("2024年你在干嘛", when), "2024");
+    const localPlan = planSearchLocal("你高中在哪", [], when);
+    assert.ok(localPlan.phrases.includes("高中"));
+    assert.ok(localPlan.phrases.includes("高二"));
+    assert.strictEqual(localPlan.year, null);
+    assert.deepStrictEqual(parsePhraseLines("高二\n这是一句解释不要\n2025\n高中生"), [
+      "高二",
+      "高中生",
+    ]);
+    assert.deepStrictEqual(
+      keepGroundedPhrases("你高中在哪", ["高中", "高二"], ["高二", "宇宙"]),
+      ["高二"],
+    );
     assert.strictEqual(
       resolveSubject("你现在在上高中还是初中", "牢火", []),
       "self",

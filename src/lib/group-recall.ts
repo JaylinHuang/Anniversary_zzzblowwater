@@ -14,6 +14,7 @@ import {
   topicNeedles,
   type DatedLine,
 } from "@/lib/fact-timeline";
+import { expandSearchPlan } from "@/lib/search-phrases";
 
 export type GroupSpeaker = { name: string; qq: string };
 
@@ -392,6 +393,7 @@ async function topicWindow(
   needles: string[],
   lo: number,
   hi: number,
+  year: string | null,
 ): Promise<DatedLine[]> {
   const who: string[] = [];
   const params: Array<string | number> = [lo, hi];
@@ -406,6 +408,7 @@ async function topicWindow(
   }
   if (!who.length || !needles.length) return [];
   const topic = needles.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ");
+  const yearSql = year ? " AND m.sent_at LIKE ?" : "";
   const db = await getDb();
   return rowsFrom<{
     id: number;
@@ -422,9 +425,13 @@ async function topicWindow(
      WHERE b.status = 'active'
        AND m.id >= ? AND m.id <= ?
        AND (${who.join(" OR ")})
-       AND (${topic})
+       AND (${topic})${yearSql}
      LIMIT 3`,
-    [...params, ...needles.map((needle) => `%${escapeLikePattern(needle)}%`)],
+    [
+      ...params,
+      ...needles.map((needle) => `%${escapeLikePattern(needle)}%`),
+      ...(year ? [`${year}%`] : []),
+    ],
   )
     .filter((row) => !isBotGroupName(row.sender) && isAgentCorpusText(row.content))
     .map((row) => ({
@@ -436,32 +443,27 @@ async function topicWindow(
     }));
 }
 
-/** 按主键分段扫整段归档。每段只留几条，不把所有命中行排进内存 */
+/**
+ * 事实问题才走这里。主键分段盖住整段归档，每段只留几条。
+ * 带了年份就只留那一年的发言。段与段之间让出，避免一次扫完把进程打死。
+ */
 async function linesAboutTopic(
   qq: string,
   names: string[],
   needles: string[],
+  year: string | null,
 ): Promise<DatedLine[]> {
   const span = await activeSpan();
   if (!span) return [];
-  const windows = recentIdWindows(span.lo, span.hi);
+  const windows = idWindows(span.lo, span.hi);
   const merged: DatedLine[] = [];
   const push = (line: DatedLine) => {
     if (!merged.some((item) => item.id === line.id)) merged.push(line);
   };
-  const oldest = windows[0];
-  let sawOldest = false;
-  // 先看最近的段。每段之间让出事件循环，方便回收上一段的临时内存
   for (const [lo, hi] of [...windows].reverse()) {
-    if (oldest && lo === oldest[0] && hi === oldest[1]) sawOldest = true;
-    for (const line of await topicWindow(qq, names, needles, lo, hi)) push(line);
-    if (merged.length >= 36) break;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  if (oldest && !sawOldest) {
-    for (const line of await topicWindow(qq, names, needles, oldest[0], oldest[1])) {
-      push(line);
-    }
+    for (const line of await topicWindow(qq, names, needles, lo, hi, year)) push(line);
+    if (merged.length >= 18) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
   return merged;
 }
@@ -504,7 +506,12 @@ export async function collectGroupRecall(params: {
     ...matched.map((speaker) => speaker.name),
   ].filter(Boolean);
   const needles = topicNeedles(current, ignore);
-  if (needles.length && subject !== "none") {
+  const plan =
+    subject !== "none"
+      ? await expandSearchPlan(current, ignore.filter((name) => name !== selfName))
+      : { phrases: [] as string[], year: null as string | null };
+  const phrases = plan.phrases.length ? plan.phrases : searchNeedles(needles);
+  if (phrases.length && subject !== "none") {
     const other = matched.find((speaker) => speaker.name !== selfName);
     const target =
       subject === "self"
@@ -518,7 +525,7 @@ export async function collectGroupRecall(params: {
         : target.name
           ? [target.name]
           : [];
-    const dated = await linesAboutTopic(target.qq, aliases, searchNeedles(needles));
+    const dated = await linesAboutTopic(target.qq, aliases, phrases, plan.year);
     if (dated.length) {
       const verdict = judgeTimeline({
         persona: params.persona || "",

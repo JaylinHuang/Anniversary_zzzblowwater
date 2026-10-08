@@ -158,9 +158,8 @@ export async function retrieveRagForQq(
   if (!q || !qq) return [];
   if (isBotGroupName(qq)) return [];
 
-  await purgeBotEmbeddings();
   const backend = await resolveEmbedBackend();
-  let count = Number(
+  const count = Number(
     (
       await (async () => {
         const db = await getDb();
@@ -174,23 +173,7 @@ export async function retrieveRagForQq(
     )?.c ?? 0,
   );
 
-  // 冷启动：首次对话时自动建一小批索引
-  if (count === 0) {
-    try {
-      await indexEmbeddingsForQq(qq);
-      const db = await getDb();
-      count = Number(
-        rowFrom<{ c: number }>(
-          db,
-          `SELECT COUNT(*) as c FROM chat_embeddings
-           WHERE qq_number = ? AND model = ?`,
-          [qq, backend.model],
-        )?.c ?? 0,
-      );
-    } catch {
-      return [];
-    }
-  }
+  // 对话里不补索引。补索引会扫这个人的全部编号，再把整库写盘，两句话就能把进程打死
   if (count === 0) return [];
 
   const [queryVec] = await embedTexts([q]);

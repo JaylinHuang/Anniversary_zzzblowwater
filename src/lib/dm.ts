@@ -103,7 +103,7 @@ export async function sendDm(params: {
       `SELECT last_insert_rowid() as id`,
     );
     return { userMsgId: Number(idRow?.id), usedBefore: used };
-  });
+  }, { persist: false });
   const quota = {
     used: usedBefore,
     limit,

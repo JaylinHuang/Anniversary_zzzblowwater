@@ -732,10 +732,14 @@ export async function getDb(): Promise<Database> {
   return dbPromise;
 }
 
-export async function withDb<T>(fn: (db: Database) => T): Promise<T> {
+export async function withDb<T>(
+  fn: (db: Database) => T,
+  opts?: { persist?: boolean },
+): Promise<T> {
   const db = await getDb();
   const result = fn(db);
-  persist(db);
+  // 私聊中途不要落盘。整库导出要再占一块连续内存，和检索叠在一起会把进程打死
+  if (opts?.persist !== false) persist(db);
   return result;
 }
 

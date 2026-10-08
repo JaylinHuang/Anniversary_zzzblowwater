@@ -188,52 +188,115 @@ export async function listGroupSpeakers(): Promise<GroupSpeaker[]> {
     return speakerCache.rows;
   }
   const db = await getDb();
-  const rows = rowsFrom<{ sender: string; qq_number: string }>(
+  const span = rowFrom<{ lo: number | null; hi: number | null }>(
     db,
-    `SELECT DISTINCT m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number
+    `SELECT MIN(m.id) AS lo, MAX(m.id) AS hi
      FROM chat_messages m
      JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' AND m.sender != ''`,
+     WHERE b.status = 'active'`,
   );
-  const speakers = rows
+  const merged = new Map<string, { sender: string; qq_number: string }>();
+  const windows =
+    span && span.lo != null && span.hi != null
+      ? idWindows(Number(span.lo), Number(span.hi))
+      : [];
+  for (const [lo, hi] of windows) {
+    const rows = rowsFrom<{ sender: string; qq_number: string }>(
+      db,
+      `SELECT DISTINCT m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number
+       FROM chat_messages m
+       JOIN import_batches b ON b.id = m.batch_id
+       WHERE b.status = 'active' AND m.sender != ''
+         AND m.id >= ? AND m.id <= ?`,
+      [lo, hi],
+    );
+    for (const row of rows) {
+      const key = `${row.sender}\n${row.qq_number}`;
+      if (!merged.has(key)) merged.set(key, row);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+  const speakers = [...merged.values()]
     .map((row) => ({ name: String(row.sender || "").trim(), qq: String(row.qq_number || "") }))
     .filter((row) => row.name.length >= 2 && row.name.length <= 16 && !isBotGroupName(row.name));
   speakerCache = { at: Date.now(), rows: speakers };
   return speakers;
 }
 
-async function linesByQq(qq: string, limit: number): Promise<LineRow[]> {
-  if (!qq) return [];
+/**
+ * 从最近的主键段往回拿几行。每段自己 LIMIT，不按整表排序。
+ * 没有 qq / 正文索引时，ORDER BY 会先把所有命中行放进内存，私聊两句就会把进程打死。
+ */
+async function recentActiveRows<T extends Record<string, import("sql.js").SqlValue>>(
+  columns: string,
+  whereSql: string,
+  whereParams: Array<string | number>,
+  limit: number,
+): Promise<T[]> {
+  const want = Math.max(1, Math.min(limit, 200));
   const db = await getDb();
-  return rowsFrom<LineRow>(
+  const span = rowFrom<{ lo: number | null; hi: number | null }>(
     db,
-    `SELECT m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number,
-            m.content AS content, m.sent_at AS sent_at
+    `SELECT MIN(m.id) AS lo, MAX(m.id) AS hi
      FROM chat_messages m
      JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' AND m.qq_number = ?
-     ORDER BY m.id DESC
-     LIMIT ?`,
-    [qq, limit],
+     WHERE b.status = 'active'`,
+  );
+  if (!span || span.lo == null || span.hi == null) return [];
+  const out: T[] = [];
+  for (const [lo, hi] of [...idWindows(Number(span.lo), Number(span.hi))].reverse()) {
+    const rows = rowsFrom<T>(
+      db,
+      `SELECT ${columns}
+       FROM chat_messages m
+       JOIN import_batches b ON b.id = m.batch_id
+       WHERE b.status = 'active'
+         AND m.id >= ? AND m.id <= ?
+         AND (${whereSql})
+       LIMIT ?`,
+      [lo, hi, ...whereParams, want - out.length],
+    );
+    out.push(...rows);
+    if (out.length >= want) break;
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+  return out.slice(0, want);
+}
+
+async function linesByQq(qq: string, limit: number): Promise<LineRow[]> {
+  if (!qq) return [];
+  return recentActiveRows<LineRow>(
+    `m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number,
+     m.content AS content, m.sent_at AS sent_at`,
+    `m.qq_number = ?`,
+    [qq],
+    limit,
   );
 }
 
 async function linesMentioning(name: string, exceptQq: string, limit: number): Promise<LineRow[]> {
   const needle = name.trim();
   if (needle.length < 2) return [];
-  const db = await getDb();
-  return rowsFrom<LineRow>(
-    db,
-    `SELECT m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number,
-            m.content AS content, m.sent_at AS sent_at
-     FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active'
-       AND m.content LIKE ? ESCAPE '\\'
-       AND IFNULL(m.qq_number, '') != ?
-     ORDER BY m.id DESC
-     LIMIT ?`,
-    [`%${escapeLikePattern(needle)}%`, exceptQq, limit],
+  return recentActiveRows<LineRow>(
+    `m.sender AS sender, IFNULL(m.qq_number, '') AS qq_number,
+     m.content AS content, m.sent_at AS sent_at`,
+    `m.content LIKE ? ESCAPE '\\' AND IFNULL(m.qq_number, '') != ?`,
+    [`%${escapeLikePattern(needle)}%`, exceptQq],
+    limit,
+  );
+}
+
+/** 私聊回看某人最近的话。只走主键分段，避免全表排序 */
+export async function recentMessagesByQq(
+  qq: string,
+  limit: number,
+): Promise<Array<{ id: number; sender: string; content: string; sent_at: string | null }>> {
+  if (!qq) return [];
+  return recentActiveRows(
+    `m.id AS id, m.sender AS sender, m.content AS content, m.sent_at AS sent_at`,
+    `m.qq_number = ?`,
+    [qq],
+    limit,
   );
 }
 

@@ -1,5 +1,5 @@
 import { contentMentionsBot, isBotGroupName } from "@/lib/bot-chat";
-import { mentionSamplesForQq } from "@/lib/group-recall";
+import { mentionSamplesForQq, recentMessagesByQq } from "@/lib/group-recall";
 import { agentPersonaSampleSize, GROUP_NAME } from "@/lib/constants";
 import { isAgentCorpusText } from "@/lib/chat-parser";
 import { loadSpreadMessages } from "@/lib/corpus-sample";
@@ -53,23 +53,10 @@ export async function bumpAgentSourceCount(qq: string) {
   });
 }
 
-/** 拉取某 QQ 的群聊记录（归档导入） */
+/** 拉取某 QQ 最近的群聊。按主键分段取，不把这个人的全部发言排进内存 */
 export async function listAgentGroupChat(qq: string, limit = 40) {
-  const db = await getDb();
-  return rowsFrom<{
-    id: number;
-    sender: string;
-    content: string;
-    sent_at: string | null;
-  }>(
-    db,
-    `SELECT m.id, m.sender, m.content, m.sent_at
-     FROM chat_messages m
-     JOIN import_batches b ON b.id = m.batch_id
-     WHERE b.status = 'active' AND m.qq_number = ?
-     ORDER BY m.id DESC LIMIT ?`,
-    [qq, Math.max(limit, limit * 8)],
-  )
+  const rows = await recentMessagesByQq(qq, Math.max(limit, limit * 8));
+  return rows
     .filter((row) => !isBotGroupName(row.sender) && !contentMentionsBot(row.content))
     .slice(0, limit);
 }

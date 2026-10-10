@@ -73,10 +73,9 @@ export function startDailyFlushLoop() {
   g.__dailyFlushLoop = true;
   const tick = () => {
     void runScheduledFlush().catch((error) => {
-      console.error(
-        "[daily-flush]",
-        error instanceof Error ? error.message : "failed",
-      );
+      const message = error instanceof Error ? error.message : "凌晨跟进失败";
+      console.error("[daily-flush]", message);
+      void import("@/lib/site-log").then(({ siteLog }) => siteLog("error", "flush", message));
     });
   };
   const timer = setInterval(tick, 60_000);

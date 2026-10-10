@@ -87,7 +87,7 @@ export default async function AdminPage() {
       code="HDD-ADM"
       channel="ADMIN"
       title="管理后台"
-        lede="模块开关、统计隐私、投票明细，以及群友提交的意见。"
+        lede="运行日志、模块开关、统计隐私、投票明细，以及群友提交的意见。"
     >
       <AdminClient
         modules={modules}

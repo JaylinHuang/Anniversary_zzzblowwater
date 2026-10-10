@@ -24,6 +24,7 @@ import {
   sponsorImageKind,
 } from "../src/lib/sponsor-shared";
 import { openRecall, sameNeedles, sealRecall } from "../src/lib/recall-cache";
+import { redactLogText } from "../src/lib/site-log";
 import {
   applyPersonaPatch,
   judgeTimeline,
@@ -926,6 +927,13 @@ async function main() {
   assert.throws(() => parseSponsorYuan("0"));
   assert.throws(() => parseSponsorYuan("10.999"));
   ok("赞助说明会收紧，收款码只认图片文件头，金额按分累计");
+
+  const redacted = redactLogText("用户 123456789 邮箱 a@qq.com 密钥 sk-abcdefghijklmn");
+  assert.ok(!redacted.includes("123456789"));
+  assert.ok(!redacted.includes("a@qq.com"));
+  assert.ok(!redacted.includes("sk-abcdefghijklmn"));
+  assert.ok(redacted.length <= 180);
+  ok("运行日志会抹掉长数字、邮箱和密钥");
 
   console.log("全部逻辑用例通过");
 }

@@ -2,6 +2,7 @@ import { agentDmDailyLimit } from "@/lib/constants";
 import { countUserDmTurnsTodaySync } from "@/lib/dm-limit";
 import { todayKey } from "@/lib/date-key";
 import { getDb, rowFrom, rowsFrom, withDb } from "@/lib/db";
+import { siteLog } from "@/lib/site-log";
 import { runMemberTurnDetailed } from "@/lib/agent-turn";
 import { getAgentById, listUserSenderNames } from "@/lib/roster";
 
@@ -114,9 +115,13 @@ export async function sendDm(params: {
   let reply: string;
   let turnCount: number;
   let recallToken: string | undefined;
+  const started = Date.now();
   try {
     ({ history, reply, turnCount, recallToken } = await generateAndStoreReply());
+    const seconds = Math.round((Date.now() - started) / 1000);
+    if (seconds >= 8) siteLog("warn", "dm", `私聊回复用了 ${seconds} 秒`);
   } catch (err) {
+    siteLog("error", "dm", err instanceof Error ? err.message : "私聊失败");
     // 发送失败：撤回刚写入的那句用户消息，不占额度、不留在对话里
     await withDb((db) => {
       db.run(`DELETE FROM agent_dm_messages WHERE id = ? AND user_id = ?`, [

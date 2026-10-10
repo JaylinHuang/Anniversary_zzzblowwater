@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api-client";
 import type { ModuleKey } from "@/lib/constants";
 import type { FeedbackRow } from "@/lib/feedback-shared";
 import { FeedbackInbox } from "./FeedbackInbox";
+import { LogMonitor } from "./LogMonitor";
 import { SponsorLedger } from "./SponsorLedger";
 import type { SponsorEntry, SponsorMember, SponsorTotal } from "@/lib/sponsor-shared";
 
@@ -121,6 +122,7 @@ export function AdminClient({
 
   return (
     <div className="mt-6 space-y-6">
+      <LogMonitor />
       <section className="panel rounded-2xl p-5">
         <h2 className="stage-sec">整站口令</h2>
         <p className="mt-2 text-sm text-[var(--fog)]">

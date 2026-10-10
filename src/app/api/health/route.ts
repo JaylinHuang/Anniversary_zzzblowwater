@@ -29,10 +29,13 @@ export async function GET() {
     }
     return NextResponse.json(base);
   } catch (e) {
+    const message = e instanceof Error ? e.message : "HEALTH_FAILED";
+    const { siteLog } = await import("@/lib/site-log");
+    siteLog("error", "health", message);
     return NextResponse.json(
       {
         ok: false,
-        error: e instanceof Error ? e.message : "HEALTH_FAILED",
+        error: message,
       },
       { status: 500 },
     );
